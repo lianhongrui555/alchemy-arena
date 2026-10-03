@@ -1,0 +1,550 @@
+import Phaser from 'phaser';
+import { audioManager } from '../audio/AudioManager';
+import { AIController } from '../core/AIController';
+import { BattleSimulation } from '../core/BattleSimulation';
+import { ARENA, BATTLE_RULES, COLORS, GAME_WIDTH, TOWER_POSITIONS } from '../core/constants';
+import { createFusionResult, getFusionCost } from '../core/FusionSystem';
+import { loadSave } from '../core/save';
+import { CARDS, getCard } from '../data/cards';
+import { getStage } from '../data/levels';
+import type { BattleEvent, FusionResult, Lane, Side, StageConfig, TowerState, UnitState } from '../core/types';
+import { createButton, createPanel } from '../ui/components';
+import { ensureFusionTexture } from '../ui/placeholderArt';
+
+export class BattleScene extends Phaser.Scene {
+  private stage!: StageConfig;
+  private simulation!: BattleSimulation;
+  private ai!: AIController;
+  private fastMode = false;
+  private fixedAccumulator = 0;
+  private selectedHandIndex = -1;
+  private fusionMode = false;
+  private fusionSelection: number[] = [];
+  private handLayer?: Phaser.GameObjects.Container;
+  private pendingLayer?: Phaser.GameObjects.Container;
+  private toastText?: Phaser.GameObjects.Text;
+  private timerText?: Phaser.GameObjects.Text;
+  private phaseText?: Phaser.GameObjects.Text;
+  private playerElixirText?: Phaser.GameObjects.Text;
+  private enemyElixirText?: Phaser.GameObjects.Text;
+  private elixirBar?: Phaser.GameObjects.Rectangle;
+  private crownsText?: Phaser.GameObjects.Text;
+  private fusionButtonText?: Phaser.GameObjects.Text;
+  private confirmFusionButton?: Phaser.GameObjects.Container;
+  private cancelFusionButton?: Phaser.GameObjects.Container;
+  private resultShown = false;
+  private readonly unitViews = new Map<number, Phaser.GameObjects.Container>();
+  private readonly towerViews = new Map<string, Phaser.GameObjects.Container>();
+  private readonly trapViews = new Map<number, Phaser.GameObjects.Container>();
+  private attackAudioCooldown = 0;
+  private lastPointer = { x: 0, y: 0 };
+  private cardClickCount = 0;
+
+  constructor() { super('Battle'); }
+
+  create(): void {
+    const stageId = (this.registry.get('selectedStageId') as number | undefined) ?? 1;
+    const save = loadSave();
+    this.stage = getStage(stageId);
+    this.fastMode = Boolean(this.registry.get('fastBattle'));
+    const regularSeconds = this.fastMode ? 8 : BATTLE_RULES.regularSeconds;
+    const overtimeSeconds = this.fastMode ? 4 : BATTLE_RULES.overtimeSeconds;
+    this.simulation = new BattleSimulation(this.stage, save.deckCardIds, this.stage.deck, { regularSeconds, overtimeSeconds });
+    this.ai = new AIController();
+    this.cameras.main.setBackgroundColor('#100d16');
+    this.drawArena();
+    this.createTowerViews();
+    this.createHud();
+    this.createHandUi();
+    this.registerInput();
+
+    this.add.text(960, 884, '未选择卡牌时点击手牌；点击战场部署，或直接拖拽卡牌。', {
+      fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '18px', color: '#9e94a7',
+    }).setOrigin(0.5);
+    this.add.text(960, 1048, '熔铸结果完全随机，但不会弱于投入卡牌中的最高价值。', {
+      fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '16px', color: '#73697d',
+    }).setOrigin(0.5);
+    if (this.registry.get('debugBattle')) {
+      (window as unknown as { __ALCHEMY_BATTLE__: unknown }).__ALCHEMY_BATTLE__ = {
+        snapshot: () => this.simulation.getSnapshot(),
+        hand: () => this.simulation.getHand('player'),
+        selectedHandIndex: () => this.selectedHandIndex,
+        fusionSelection: () => [...this.fusionSelection],
+        pendingFusion: () => this.simulation.getPendingFusion('player'),
+        lastPointer: () => ({ ...this.lastPointer }),
+        cardClickCount: () => this.cardClickCount,
+      };
+    }
+  }
+
+  update(_time: number, deltaMs: number): void {
+    const delta = Math.min(deltaMs / 1000, 0.1);
+    const speedMultiplier = this.fastMode ? 18 : 1;
+    this.fixedAccumulator += delta * speedMultiplier;
+    const step = 1 / 60;
+    let iterations = 0;
+    while (this.fixedAccumulator >= step && iterations < 180) {
+      this.simulation.update(step);
+      this.ai.update(step, this.simulation);
+      this.fixedAccumulator -= step;
+      iterations += 1;
+    }
+    this.attackAudioCooldown = Math.max(0, this.attackAudioCooldown - delta);
+    this.renderSimulation();
+    this.renderQueuedEvents();
+    this.updateHud();
+    if (this.simulation.getSnapshot().result && !this.resultShown) this.showBattleResult();
+  }
+
+  private drawArena(): void {
+    this.add.rectangle(960, 488, 1580, 725, 0x243a34, 1).setStrokeStyle(5, 0x6f5a3e, 1);
+    for (let x = ARENA.left; x <= ARENA.right; x += 80) {
+      this.add.line(0, 0, x, ARENA.top, x, ARENA.bottom, 0x6b8976, 0.11).setOrigin(0);
+    }
+    for (let y = ARENA.top; y <= ARENA.bottom; y += 80) {
+      this.add.line(0, 0, ARENA.left, y, ARENA.right, y, 0x6b8976, 0.11).setOrigin(0);
+    }
+    this.add.rectangle(960, 488, 80, 725, COLORS.river, 1).setStrokeStyle(3, 0x5dc1df, 0.75);
+    for (let y = 142; y < 846; y += 34) this.add.line(0, 0, 925, y, 995, y + 18, 0xb9ecf3, 0.2);
+    this.add.rectangle(960, ARENA.topLaneY, 110, 112, COLORS.bridge, 1).setStrokeStyle(4, 0xd2b06e, 1);
+    this.add.rectangle(960, ARENA.bottomLaneY, 110, 112, COLORS.bridge, 1).setStrokeStyle(4, 0xd2b06e, 1);
+    this.add.rectangle(960, ARENA.topLaneY, 1580, 168, COLORS.gold, 0.025);
+    this.add.rectangle(960, ARENA.bottomLaneY, 1580, 168, COLORS.gold, 0.025);
+    this.add.text(560, 152, '我方部署区', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '18px', color: '#65d1e6' }).setOrigin(0.5);
+    this.add.text(1370, 152, '敌方部署区', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '18px', color: '#e77a82' }).setOrigin(0.5);
+  }
+
+  private createHud(): void {
+    this.add.rectangle(960, 52, 1900, 104, 0x17131f, 0.97).setStrokeStyle(3, COLORS.parchmentDark, 0.8);
+    this.add.text(64, 50, this.stage.name, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '28px', color: '#f6dfaa', fontStyle: 'bold' }).setOrigin(0, 0.5);
+    this.add.text(64, 80, `对手：${this.stage.aiName} · ${this.stage.difficultyLabel}`, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '17px', color: '#a99db1' }).setOrigin(0, 0.5);
+    this.timerText = this.add.text(960, 45, '03:00', { fontFamily: 'monospace', fontSize: '38px', color: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5);
+    this.phaseText = this.add.text(960, 82, '常规时间', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '17px', color: '#a99db1' }).setOrigin(0.5);
+    this.crownsText = this.add.text(1810, 52, '皇冠 0 : 0', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '22px', color: '#f6dfaa' }).setOrigin(1, 0.5);
+
+    this.add.rectangle(330, 893, 520, 26, 0x2b2530, 1).setStrokeStyle(3, 0x786c82, 1);
+    this.elixirBar = this.add.rectangle(72, 893, 0, 20, 0xb85ce0, 1).setOrigin(0, 0.5);
+    this.playerElixirText = this.add.text(330, 861, '我方圣水 5.0 / 10', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '18px', color: '#e5d8f1' }).setOrigin(0.5);
+    this.enemyElixirText = this.add.text(1540, 893, '敌方圣水', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '17px', color: '#b9a7c6' }).setOrigin(0.5);
+    createButton(this, 1790, 888, 150, 54, '投降', () => this.confirmSurrender(), { fill: 0x6f4c54, hoverFill: 0xa55d65, textColor: '#fff4f4', fontSize: 20 });
+    this.toastText = this.add.text(960, 842, '', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '20px', color: '#ffe08a', backgroundColor: '#1b1720cc', padding: { x: 14, y: 7 } }).setOrigin(0.5).setDepth(20);
+  }
+
+  private createHandUi(): void {
+    this.add.rectangle(960, 968, 1900, 215, 0x17131f, 0.98).setStrokeStyle(4, COLORS.parchmentDark, 0.9);
+    createButton(this, 220, 889, 220, 58, '熔铸工坊', () => this.toggleFusionMode(), { fill: COLORS.purple, hoverFill: 0xa576dc, textColor: '#ffffff', fontSize: 22 });
+    this.fusionButtonText = this.add.text(220, 842, '选择两张牌进入随机熔铸', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '16px', color: '#cab6dc' }).setOrigin(0.5);
+    this.cancelFusionButton = createButton(this, 1660, 889, 150, 58, '取消选择', () => this.toggleFusionMode(false), { fontSize: 20 }).setVisible(false);
+    this.confirmFusionButton = createButton(this, 1830, 889, 190, 58, '确认熔铸', () => this.confirmFusion(), { fill: COLORS.gold, hoverFill: 0xffd775, fontSize: 20 }).setVisible(false);
+    this.pendingLayer = this.add.container(0, 0);
+    this.refreshHandUi();
+  }
+
+  private registerInput(): void {
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer, objects: Phaser.GameObjects.GameObject[]) => {
+      this.lastPointer = { x: pointer.x, y: pointer.y };
+      const handIndex = this.getHandIndexAt(pointer.x, pointer.y);
+      if (handIndex >= 0) { this.handleHandCardClick(handIndex); return; }
+      if (objects.length > 0 || pointer.y < ARENA.top || pointer.y > ARENA.bottom) return;
+      const lane = this.simulation.getLaneForPosition(pointer.y);
+      if (this.simulation.getPendingFusion('player')) {
+        if (this.simulation.deployPendingFusion('player', lane, pointer.x, pointer.y)) {
+          audioManager.playSfx('deploy');
+          this.pendingLayer?.removeAll(true);
+          this.showToast('融合卡已部署');
+          this.refreshHandUi();
+        } else {
+          this.showToast('该位置无法部署融合卡', true);
+        }
+        return;
+      }
+      if (this.selectedHandIndex < 0) {
+        this.showToast('请先选择一张手牌', true);
+        return;
+      }
+      const success = this.simulation.playHandCard('player', this.selectedHandIndex, lane, pointer.x, pointer.y);
+      if (success) {
+        audioManager.playSfx('deploy');
+        this.selectedHandIndex = -1;
+        this.refreshHandUi();
+      } else {
+        this.showToast('圣水不足、位置无效或已有待部署融合卡', true);
+      }
+    });
+  }
+
+  private refreshHandUi(): void {
+    this.handLayer?.destroy(true);
+    this.handLayer = this.add.container(0, 0).setDepth(8);
+    const hand = this.simulation.getHand('player');
+    hand.forEach((cardId, index) => {
+      const card = getCard(cardId);
+      const x = 610 + index * 170;
+      const y = 973;
+      const container = this.createHandCard(x, y, card.id, card.name, card.cost, card.artKey, index);
+      this.handLayer?.add(container);
+    });
+
+    const nextId = this.simulation.getNextCard('player');
+    if (nextId) {
+      const next = getCard(nextId);
+      const nextCard = this.createHandCard(1390, 973, next.id, next.name, next.cost, next.artKey, -1);
+      nextCard.setAlpha(0.38);
+      this.handLayer?.add(nextCard);
+      this.handLayer?.add(this.add.text(1390, 1040, '下一张', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '14px', color: '#8f8498' }).setOrigin(0.5));
+    }
+
+    this.fusionButtonText?.setText(this.fusionMode
+      ? `已选择 ${this.fusionSelection.length}/2 张`
+      : this.simulation.getPendingFusion('player')
+        ? '已有待部署融合卡'
+        : this.simulation.getFusionBias('player') === 'combat'
+          ? '下一次熔铸：作战类'
+          : this.simulation.getFusionBias('player') === 'mystic'
+            ? '下一次熔铸：诡术类'
+            : '选择两张牌进入随机熔铸');
+    this.renderPendingFusion();
+  }
+
+  private createHandCard(x: number, y: number, id: string, name: string, cost: number, artKey: string, index: number): Phaser.GameObjects.Container {
+    const selected = this.selectedHandIndex === index || this.fusionSelection.includes(index);
+    const affordable = index < 0 || this.simulation.canAfford('player', cost);
+    const container = this.add.container(x, y);
+    const box = this.add.rectangle(0, 0, 150, 158, 0x282031, affordable ? 1 : 0.5).setStrokeStyle(selected ? 5 : 3, selected ? COLORS.gold : 0x8e789b, 1);
+    const art = this.add.image(0, -24, artKey).setDisplaySize(72, 72).setAlpha(affordable ? 1 : 0.45);
+    const costCircle = this.add.circle(-57, -57, 17, 0x7848b6, 1).setStrokeStyle(2, 0xffffff, 0.8);
+    const costText = this.add.text(-57, -57, String(cost), { fontFamily: 'monospace', fontSize: '20px', color: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5);
+    const nameText = this.add.text(0, 35, name, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '16px', color: '#fff4d6', fontStyle: 'bold', align: 'center', wordWrap: { width: 134 } }).setOrigin(0.5);
+    container.add([box, art, costCircle, costText, nameText]);
+    box.setInteractive({ useHandCursor: true });
+    box.setData('handIndex', index);
+    box.setData('homeX', x);
+    box.setData('homeY', y);
+    this.input.setDraggable(box);
+    box.on('dragstart', () => {
+      if (index < 0) return;
+      container.setDepth(30);
+    });
+    box.on('drag', (_pointer: Phaser.Input.Pointer, dragX: number, dragY: number) => {
+      if (index < 0) return;
+      container.setPosition(dragX, dragY);
+    });
+    box.on('dragend', (pointer: Phaser.Input.Pointer) => {
+      if (index < 0) return;
+      if (pointer.y < ARENA.bottom && pointer.y > ARENA.top && pointer.x > ARENA.left && pointer.x < ARENA.right) {
+        const lane = this.simulation.getLaneForPosition(pointer.y);
+        if (this.simulation.playHandCard('player', index, lane, pointer.x, pointer.y)) {
+          audioManager.playSfx('deploy');
+          this.selectedHandIndex = -1;
+          this.refreshHandUi();
+          return;
+        }
+        this.showToast('此处无法部署或圣水不足', true);
+      }
+      container.setPosition(x, y);
+      container.setDepth(8);
+    });
+    return container;
+  }
+
+  private getHandIndexAt(x: number, y: number): number {
+    if (y < 880 || y > 1072) return -1;
+    for (let index = 0; index < 4; index += 1) {
+      const centerX = 610 + index * 170;
+      if (x >= centerX - 76 && x <= centerX + 76) return index;
+    }
+    return -1;
+  }
+
+  private handleHandCardClick(index: number): void {
+    this.cardClickCount += 1;
+    if (index < 0) return;
+    const cardId = this.simulation.getHand('player')[index];
+    if (!cardId) return;
+    const card = getCard(cardId);
+    if (card.type === 'catalyst') {
+      if (this.simulation.useCatalyst('player', index)) {
+        this.selectedHandIndex = -1;
+        this.showToast(`${card.name}已生效`);
+        this.refreshHandUi();
+      } else {
+        this.showToast('圣水不足，无法使用催化剂', true);
+      }
+      return;
+    }
+    if (this.fusionMode) {
+      const existing = this.fusionSelection.indexOf(index);
+      if (existing >= 0) this.fusionSelection.splice(existing, 1);
+      else if (this.fusionSelection.length < 2) this.fusionSelection.push(index);
+      this.refreshFusionControls();
+      this.refreshHandUi();
+      return;
+    }
+    this.selectedHandIndex = this.selectedHandIndex === index ? -1 : index;
+    this.refreshHandUi();
+  }
+
+  private toggleFusionMode(force?: boolean): void {
+    if (this.simulation.getPendingFusion('player')) {
+      this.showToast('请先部署已有的融合卡', true);
+      return;
+    }
+    this.fusionMode = force ?? !this.fusionMode;
+    this.fusionSelection = [];
+    this.selectedHandIndex = -1;
+    this.refreshFusionControls();
+    this.refreshHandUi();
+  }
+
+  private refreshFusionControls(): void {
+    this.cancelFusionButton?.setVisible(this.fusionMode);
+    this.confirmFusionButton?.setVisible(this.fusionMode);
+    if (this.fusionSelection.length === 2) {
+      const ids = this.fusionSelection.map((index) => this.simulation.getHand('player')[index]).filter(Boolean) as string[];
+      if (ids.length === 2) {
+        const cost = getFusionCost(getCard(ids[0]!), getCard(ids[1]!));
+        const label = this.confirmFusionButton?.list.find((item) => item instanceof Phaser.GameObjects.Text) as Phaser.GameObjects.Text | undefined;
+        label?.setText(`确认熔铸 ${cost} 费`);
+      }
+    } else {
+      const label = this.confirmFusionButton?.list.find((item) => item instanceof Phaser.GameObjects.Text) as Phaser.GameObjects.Text | undefined;
+      label?.setText('确认熔铸');
+    }
+  }
+
+  private confirmFusion(): void {
+    if (this.fusionSelection.length !== 2) {
+      this.showToast('请先选择两张非催化剂手牌', true);
+      return;
+    }
+    const hand = this.simulation.getHand('player');
+    const ids = this.fusionSelection.map((index) => hand[index]);
+    if (ids.some((id) => !id || getCard(id).type === 'catalyst')) {
+      this.showToast('催化剂不能作为熔铸素材', true);
+      return;
+    }
+    const result = createFusionResult(ids[0]!, ids[1]!, this.simulation.getFusionBias('player'), Math.random, 0.22);
+    if (!this.simulation.fuseCards('player', [this.fusionSelection[0]!, this.fusionSelection[1]!], result)) {
+      this.showToast('熔铸失败：圣水不足或状态无效', true);
+      return;
+    }
+    audioManager.playSfx('fusion');
+    this.fusionMode = false;
+    this.fusionSelection = [];
+    this.refreshFusionControls();
+    this.refreshHandUi();
+    this.showFusionReveal(result);
+  }
+
+  private showFusionReveal(result: FusionResult): void {
+    const artKey = ensureFusionTexture(this, result);
+    const overlay = this.add.container(0, 0).setDepth(50);
+    const blocker = this.add.rectangle(960, 540, 1920, 1080, 0x09070c, 0.78).setInteractive();
+    const panel = createPanel(this, 960, 520, 640, 520, 1);
+    const ring = this.add.circle(0, -115, 78, 0x2d2038, 1).setStrokeStyle(7, result.signature ? COLORS.gold : COLORS.purple, 1);
+    const art = this.add.image(0, -115, artKey).setDisplaySize(112, 112);
+    const title = this.add.text(0, -20, result.signature ? '招牌配方！' : '随机熔铸完成', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '22px', color: result.signature ? '#f6dfaa' : '#c9b8d6' }).setOrigin(0.5);
+    const name = this.add.text(0, 35, result.name, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '40px', color: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5);
+    const description = this.add.text(0, 112, result.description, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '20px', color: '#c9b8d6', align: 'center', wordWrap: { width: 540 } }).setOrigin(0.5);
+    panel.add([ring, art, title, name, description]);
+    overlay.add([blocker, panel]);
+    const button = createButton(this, 960, 720, 260, 66, '进入待部署槽', () => overlay.destroy(true), { fill: COLORS.gold, hoverFill: 0xffd775, fontSize: 23 });
+    button.setDepth(51);
+    overlay.setAlpha(0);
+    this.tweens.add({ targets: overlay, alpha: 1, duration: 220 });
+  }
+
+  private renderPendingFusion(): void {
+    this.pendingLayer?.removeAll(true);
+    const pending = this.simulation.getPendingFusion('player');
+    if (!pending) return;
+    const box = this.add.rectangle(960, 833, 410, 44, 0x3f2c16, 0.98).setStrokeStyle(3, COLORS.gold, 1);
+    const text = this.add.text(960, 833, `待部署：${pending.name} · 点击战场释放`, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '18px', color: '#ffe6a4', fontStyle: 'bold' }).setOrigin(0.5);
+    this.pendingLayer?.add([box, text]);
+  }
+
+  private renderSimulation(): void {
+    this.syncTowerViews();
+    this.syncUnitViews();
+    this.syncTrapViews();
+  }
+
+  private createTowerViews(): void {
+    for (const tower of this.simulation.towers) {
+      const key = tower.lane === 'king' ? `tower_king_${tower.side}` : `tower_guard_${tower.side}`;
+      const container = this.add.container(tower.x, tower.y);
+      const image = this.add.image(0, 0, key).setDisplaySize(tower.lane === 'king' ? 102 : 88, tower.lane === 'king' ? 102 : 88);
+      const barBack = this.add.rectangle(0, 53, 90, 12, 0x201827, 1).setStrokeStyle(2, 0x000000, 0.7);
+      const bar = this.add.rectangle(-43, 53, 86, 8, tower.side === 'player' ? COLORS.player : COLORS.enemy, 1).setOrigin(0, 0.5).setName('hp-bar');
+      const label = this.add.text(0, -63, tower.lane === 'king' ? '国王塔' : '守卫塔', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '15px', color: '#f1e7dc' }).setOrigin(0.5);
+      container.add([image, barBack, bar, label]);
+      this.towerViews.set(tower.id, container);
+    }
+  }
+
+  private syncTowerViews(): void {
+    for (const tower of this.simulation.towers) {
+      const container = this.towerViews.get(tower.id);
+      if (!container) continue;
+      container.setAlpha(tower.alive ? 1 : 0.22);
+      const bar = container.getByName('hp-bar') as Phaser.GameObjects.Rectangle | null;
+      bar?.setDisplaySize(86 * Math.max(0, tower.hp / tower.maxHp), 8);
+    }
+  }
+
+  private syncUnitViews(): void {
+    for (const unit of this.simulation.units) {
+      if (!unit.alive) {
+        const dead = this.unitViews.get(unit.id);
+        if (dead) {
+          this.tweens.add({ targets: dead, alpha: 0, scaleX: 0.3, scaleY: 0.3, duration: 180, onComplete: () => dead.destroy(true) });
+          this.unitViews.delete(unit.id);
+        }
+        continue;
+      }
+      let view = this.unitViews.get(unit.id);
+      if (!view) {
+        view = this.createUnitView(unit);
+        this.unitViews.set(unit.id, view);
+      }
+      view.setPosition(unit.x, unit.y);
+      const bar = view.getByName('unit-hp') as Phaser.GameObjects.Rectangle | null;
+      bar?.setDisplaySize(58 * Math.max(0, unit.hp / unit.maxHp), 6);
+    }
+  }
+
+  private createUnitView(unit: UnitState): Phaser.GameObjects.Container {
+    const container = this.add.container(unit.x, unit.y);
+    const key = CARDS[unit.cardId]?.artKey ?? (unit.movement === 'air' ? 'spell_fusion_generic' : 'unit_spore');
+    const sprite = this.add.image(0, 0, key).setDisplaySize(unit.radius * 2.55, unit.radius * 2.55);
+    if (unit.owner === 'enemy') sprite.setTint(0xffaaaa);
+    const back = this.add.rectangle(0, unit.radius + 12, 62, 9, 0x201827, 1);
+    const bar = this.add.rectangle(-29, unit.radius + 12, 58, 6, unit.owner === 'player' ? COLORS.green : COLORS.enemy, 1).setOrigin(0, 0.5).setName('unit-hp');
+    const name = this.add.text(0, -unit.radius - 19, unit.name, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '13px', color: '#ffffff', backgroundColor: '#17131faa', padding: { x: 3, y: 1 } }).setOrigin(0.5);
+    container.add([sprite, back, bar, name]);
+    if (unit.movement === 'air') this.tweens.add({ targets: sprite, y: -9, duration: 520, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+    else this.tweens.add({ targets: sprite, scaleX: 1.05, scaleY: 0.95, duration: 420 + (unit.id % 5) * 40, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+    return container;
+  }
+
+  private syncTrapViews(): void {
+    for (const trap of this.simulation.traps) {
+      if (!trap.alive) {
+        const existing = this.trapViews.get(trap.id);
+        existing?.destroy(true);
+        this.trapViews.delete(trap.id);
+        continue;
+      }
+      if (this.trapViews.has(trap.id)) continue;
+      const card = CARDS[trap.cardId];
+      const container = this.add.container(trap.x, trap.y);
+      const image = this.add.image(0, 0, card?.artKey ?? 'trap_fusion_generic').setDisplaySize(58, 58).setAlpha(trap.owner === 'player' ? 0.74 : 0.46);
+      const ring = this.add.circle(0, 0, trap.triggerRadius, 0xffffff, 0).setStrokeStyle(2, trap.owner === 'player' ? COLORS.player : COLORS.enemy, 0.35);
+      container.add([image, ring]);
+      this.trapViews.set(trap.id, container);
+    }
+  }
+
+  private renderQueuedEvents(): void {
+    while (this.simulation.events.length > 0) {
+      const event = this.simulation.events.shift();
+      if (!event) break;
+      this.renderBattleEvent(event);
+    }
+  }
+
+  private renderBattleEvent(event: BattleEvent): void {
+    if (event.type === 'attack' && event.x !== undefined && event.y !== undefined && event.targetX !== undefined && event.targetY !== undefined) {
+      const color = event.side === 'player' ? COLORS.player : COLORS.enemy;
+      const dot = this.add.circle(event.x, event.y, 5, color, 0.9).setDepth(4);
+      this.tweens.add({ targets: dot, x: event.targetX, y: event.targetY, duration: 90, onComplete: () => dot.destroy() });
+      if (this.attackAudioCooldown <= 0) {
+        audioManager.playSfx('attack');
+        this.attackAudioCooldown = 0.18;
+      }
+    } else if (event.type === 'spell' && event.x !== undefined && event.y !== undefined) {
+      const ring = this.add.circle(event.x, event.y, 20, 0xffffff, 0).setStrokeStyle(7, 0xd9a4ff, 0.9).setDepth(5);
+      this.tweens.add({ targets: ring, radius: 100, alpha: 0, duration: 320, onComplete: () => ring.destroy() });
+    } else if (event.type === 'trap-trigger' && event.x !== undefined && event.y !== undefined) {
+      const ring = this.add.circle(event.x, event.y, 18, 0xffffff, 0).setStrokeStyle(6, COLORS.green, 1).setDepth(5);
+      this.tweens.add({ targets: ring, radius: 125, alpha: 0, duration: 430, onComplete: () => ring.destroy() });
+      audioManager.playSfx('tower');
+    } else if (event.type === 'unit-died' && event.x !== undefined && event.y !== undefined) {
+      this.createBurst(event.x, event.y, event.side === 'player' ? COLORS.player : COLORS.enemy);
+    } else if (event.type === 'tower-destroyed' && event.x !== undefined && event.y !== undefined) {
+      outerRing(this, event.x, event.y);
+      audioManager.playSfx('tower');
+    }
+  }
+
+  private createBurst(x: number, y: number, color: number): void {
+    for (let index = 0; index < 7; index += 1) {
+      const dot = this.add.rectangle(x, y, 7, 7, color, 0.9).setDepth(5);
+      const angle = (Math.PI * 2 * index) / 7;
+      this.tweens.add({ targets: dot, x: x + Math.cos(angle) * 50, y: y + Math.sin(angle) * 50, alpha: 0, duration: 280, onComplete: () => dot.destroy() });
+    }
+  }
+
+  private updateHud(): void {
+    const snapshot = this.simulation.getSnapshot();
+    const seconds = Math.max(0, Math.ceil(snapshot.timeLeft));
+    const minutes = Math.floor(seconds / 60);
+    const remainder = seconds % 60;
+    this.timerText?.setText(`${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`);
+    this.phaseText?.setText(snapshot.overtime ? '加时 · 双倍圣水' : '常规时间');
+    this.playerElixirText?.setText(`我方圣水 ${snapshot.playerElixir.toFixed(1)} / 10`);
+    this.enemyElixirText?.setText(`敌方圣水 ${snapshot.enemyElixir.toFixed(1)}${this.stage.elixirMultiplier > 1 ? ' · 加速' : ''}`);
+    this.elixirBar?.setDisplaySize(5.2 * snapshot.playerElixir, 20);
+    const playerCrowns = snapshot.towers.filter((tower) => tower.side === 'enemy' && !tower.alive).reduce((sum, tower) => sum + (tower.lane === 'king' ? 3 : 1), 0);
+    const enemyCrowns = snapshot.towers.filter((tower) => tower.side === 'player' && !tower.alive).reduce((sum, tower) => sum + (tower.lane === 'king' ? 3 : 1), 0);
+    this.crownsText?.setText(`皇冠 ${playerCrowns} : ${enemyCrowns}`);
+  }
+
+  private showBattleResult(): void {
+    this.resultShown = true;
+    const result = this.simulation.getSnapshot().result;
+    if (!result) return;
+    const won = result.winner === 'player';
+    audioManager.playSfx(won ? 'victory' : 'defeat');
+    const overlay = this.add.container(0, 0).setDepth(100);
+    const blocker = this.add.rectangle(960, 540, 1920, 1080, 0x08060c, 0.82).setInteractive();
+    const panel = createPanel(this, 960, 500, 650, 500, 1);
+    panel.add(this.add.text(0, -150, won ? '胜 利' : result.winner === 'draw' ? '平 局' : '失 败', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '58px', color: won ? '#f6dfaa' : '#e07d84', fontStyle: 'bold' }).setOrigin(0.5));
+    panel.add(this.add.text(0, -62, `皇冠 ${result.playerCrowns} : ${result.enemyCrowns}`, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '30px', color: '#ffffff' }).setOrigin(0.5));
+    panel.add(this.add.text(0, 10, result.reason === 'king-destroyed' ? '国王塔被摧毁' : result.reason === 'time' ? '时间结束' : '加时结束，比较剩余塔生命值', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '22px', color: '#bcaec6' }).setOrigin(0.5));
+    overlay.add([blocker, panel]);
+    const button = createButton(this, 960, 650, 330, 76, won ? '领取胜利奖励' : '返回关卡选择', () => {
+      this.scene.start(won ? 'Reward' : 'StageSelect', won ? { stageId: this.stage.id, won: true } : undefined);
+    }, { fill: COLORS.gold, hoverFill: 0xffd775, fontSize: 26 });
+    button.setDepth(102);
+  }
+
+  private confirmSurrender(): void {
+    const overlay = this.add.container(0, 0).setDepth(90);
+    const blocker = this.add.rectangle(960, 540, 1920, 1080, 0x08060c, 0.75).setInteractive();
+    const panel = createPanel(this, 960, 500, 560, 320, 1);
+    panel.add(this.add.text(0, -70, '确定投降并结束本局？', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '30px', color: '#f6dfaa', fontStyle: 'bold' }).setOrigin(0.5));
+    overlay.add([blocker, panel]);
+    createButton(this, 800, 585, 220, 64, '取消', () => overlay.destroy(true), { fontSize: 22 }).setDepth(91);
+    createButton(this, 1120, 585, 220, 64, '确认投降', () => this.scene.start('StageSelect'), { fill: 0xa5525d, hoverFill: 0xd06b76, textColor: '#ffffff', fontSize: 22 }).setDepth(91);
+  }
+
+  private showToast(message: string, isError = false): void {
+    if (!this.toastText) return;
+    this.toastText.setText(message).setColor(isError ? '#ff9a8a' : '#ffe08a').setAlpha(1);
+    this.tweens.killTweensOf(this.toastText);
+    this.tweens.add({ targets: this.toastText, alpha: 0, delay: 1100, duration: 500 });
+  }
+}
+
+function outerRing(scene: Phaser.Scene, x: number, y: number): void {
+  const ring = scene.add.circle(x, y, 20, 0xffffff, 0).setStrokeStyle(8, COLORS.gold, 1).setDepth(10);
+  scene.tweens.add({ targets: ring, radius: 130, alpha: 0, duration: 600, onComplete: () => ring.destroy() });
+}
+
+
+
+
+
+
+
