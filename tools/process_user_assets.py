@@ -18,6 +18,12 @@ MAPPING = {
     "e6a69adb8837ceeed673f45b2455df25.jpg": ("cards", "catalyst_order.png", 128),
     "a3064eff53c16bdfaa9169382576d209.jpg": ("towers", "tower_king_player.png", 160),
     "decacb49f4a3f233aa7a65849b0da0d0.jpg": ("towers", "tower_guard_player.png", 160),
+    "76d4b328b2b80789ba4b22494c9a763f.jpg": ("cards", "unit_charger.png", 128),
+    "73d8587e5951a9f8ec83599ca4cb8e31.jpg": ("cards", "building_spring.png", 128),
+    "5e40aa4384812a372c6d03751615d89b.jpg": ("cards", "spell_growth.png", 128),
+    "36af211c19441a8c6a8ae4153355414e.jpg": ("cards", "trap_mire.png", 128),
+    "8682d34bb1ba5814bdd5a62bffdd909d.jpg": ("cards", "catalyst_chaos.png", 128),
+    "23148efe6d83e1ff52543711d30ad453.jpg": ("cards", "trap_rune.png", 128),
 }
 
 
@@ -84,3 +90,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+

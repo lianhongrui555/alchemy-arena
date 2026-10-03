@@ -13,6 +13,12 @@ export const ASSET_MANIFEST: AssetManifest = {
     spell_flame: 'spell_flame.png',
     spell_frost: 'spell_frost.png',
     catalyst_order: 'catalyst_order.png',
+    unit_charger: 'unit_charger.png',
+    building_spring: 'building_spring.png',
+    spell_growth: 'spell_growth.png',
+    trap_mire: 'trap_mire.png',
+    trap_rune: 'trap_rune.png',
+    catalyst_chaos: 'catalyst_chaos.png',
   },
   towers: {
     tower_king_player: 'tower_king_player.png',
@@ -21,3 +27,5 @@ export const ASSET_MANIFEST: AssetManifest = {
     tower_guard_enemy: 'tower_guard_player.png',
   },
 };
+
+
