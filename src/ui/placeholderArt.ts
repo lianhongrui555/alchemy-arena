@@ -27,10 +27,109 @@ export function ensurePlaceholderTextures(scene: Phaser.Scene): void {
 
 export function ensureFusionTexture(scene: Phaser.Scene, result: FusionResult): string {
   if (scene.textures.exists(result.artKey)) return result.artKey;
-  const baseKey = result.type === 'spell' || result.type === 'trap' ? `${result.type}_fusion_generic` : null;
-  if (baseKey && scene.textures.exists(baseKey)) return baseKey;
-  drawGenericFusion(scene, result.artKey, result.signature ? 0xf0b84f : TYPE_COLORS[result.type] ?? 0xf08b4f);
+  const texture = scene.textures.createCanvas(result.artKey, 128, 128);
+  if (!texture) {
+    drawGenericFusion(scene, result.artKey, result.signature ? 0xf0b84f : TYPE_COLORS[result.type] ?? 0xf08b4f);
+    return result.artKey;
+  }
+  drawFusionCanvas(scene, texture.getContext(), result);
+  texture.refresh();
   return result.artKey;
+}
+
+interface FusionLayer {
+  key: string;
+  x?: number;
+  y?: number;
+  scale?: number;
+  alpha?: number;
+  rotation?: number;
+  operation?: GlobalCompositeOperation;
+}
+
+const SIGNATURE_LAYERS: Record<string, FusionLayer[]> = {
+  spell_fusion_icefire: [
+    { key: 'spell_frost', x: -8, y: -5, scale: 0.98 },
+    { key: 'spell_flame', x: 11, y: 8, scale: 0.72, alpha: 0.9, operation: 'screen' },
+  ],
+  unit_fusion_proliferation: [
+    { key: 'spell_growth', scale: 0.98, alpha: 0.82 },
+    { key: 'unit_spore', x: -28, y: -4, scale: 0.46 },
+    { key: 'unit_spore', x: 25, y: 8, scale: 0.5 },
+    { key: 'unit_spore', x: 2, y: 31, scale: 0.42 },
+  ],
+  unit_fusion_forge: [
+    { key: 'unit_charger', x: -8, y: 2, scale: 0.98 },
+    { key: 'unit_anvil', x: 18, y: 3, scale: 0.82, alpha: 0.9, operation: 'screen' },
+  ],
+  unit_fusion_thunder: [
+    { key: 'trap_rune', scale: 0.96, alpha: 0.86 },
+    { key: 'unit_griffin', x: 8, y: 2, scale: 0.78, operation: 'screen' },
+  ],
+  building_fusion_acid: [
+    { key: 'trap_mire', x: -8, y: 8, scale: 0.9, alpha: 0.8 },
+    { key: 'building_cannon', x: 10, y: -4, scale: 0.84 },
+  ],
+  building_fusion_frost: [
+    { key: 'spell_frost', scale: 0.98, alpha: 0.82 },
+    { key: 'building_spring', x: 8, y: 2, scale: 0.82 },
+  ],
+};
+
+function drawFusionCanvas(scene: Phaser.Scene, context: CanvasRenderingContext2D, result: FusionResult): void {
+  context.clearRect(0, 0, 128, 128);
+  const accent = result.signature ? '#f0b84f' : result.direction === 'combat' ? '#3bb6d4' : '#9b6de0';
+  context.save();
+  context.beginPath();
+  context.arc(64, 64, 52, 0, Math.PI * 2);
+  context.fillStyle = result.signature ? 'rgba(78,48,20,0.78)' : 'rgba(35,27,46,0.88)';
+  context.fill();
+  context.lineWidth = 5;
+  context.strokeStyle = accent;
+  context.stroke();
+  context.restore();
+
+  const signatureLayers = SIGNATURE_LAYERS[result.artKey];
+  if (signatureLayers) {
+    for (const layer of signatureLayers) drawTextureLayer(scene, context, layer);
+    drawFusionSpark(context, accent);
+    return;
+  }
+
+  const sourceA = CARDS[result.sourceCardIds[0]]?.artKey;
+  const sourceB = CARDS[result.sourceCardIds[1]]?.artKey;
+  if (sourceA) drawTextureLayer(scene, context, { key: sourceA, x: -10, y: 2, scale: 0.92 });
+  if (sourceB) drawTextureLayer(scene, context, { key: sourceB, x: 15, y: 5, scale: 0.68, alpha: 0.9, operation: 'screen' });
+  drawFusionSpark(context, accent);
+}
+
+function drawTextureLayer(scene: Phaser.Scene, context: CanvasRenderingContext2D, layer: FusionLayer): void {
+  if (!scene.textures.exists(layer.key)) return;
+  const source = scene.textures.get(layer.key).getSourceImage() as CanvasImageSource;
+  const scale = layer.scale ?? 1;
+  context.save();
+  context.translate(64 + (layer.x ?? 0), 64 + (layer.y ?? 0));
+  context.rotate(layer.rotation ?? 0);
+  context.globalAlpha = layer.alpha ?? 1;
+  context.globalCompositeOperation = layer.operation ?? 'source-over';
+  context.drawImage(source, -64 * scale, -64 * scale, 128 * scale, 128 * scale);
+  context.restore();
+}
+
+function drawFusionSpark(context: CanvasRenderingContext2D, color: string): void {
+  context.save();
+  context.translate(64, 64);
+  context.strokeStyle = color;
+  context.lineWidth = 3;
+  context.globalAlpha = 0.7;
+  for (let index = 0; index < 8; index += 1) {
+    context.rotate(Math.PI / 4);
+    context.beginPath();
+    context.moveTo(43, 0);
+    context.lineTo(54, 0);
+    context.stroke();
+  }
+  context.restore();
 }
 
 function drawCardTexture(scene: Phaser.Scene, key: string, card: CardDefinition): void {
@@ -109,4 +208,5 @@ function drawGenericFusion(scene: Phaser.Scene, key: string, color: number): voi
   graphics.generateTexture(key, 64, 64);
   graphics.destroy();
 }
+
 

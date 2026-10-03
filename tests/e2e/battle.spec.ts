@@ -36,10 +36,12 @@ test('可以选择两张牌完成随机熔铸', async ({ page }) => {
   expect(pending).not.toBeNull();
   expect(pending.name.length).toBeGreaterThan(0);
 
-  await page.mouse.click(960, 720);
-  await page.waitForTimeout(150);
+  await page.waitForTimeout(850);
+  await page.mouse.click(960, 755);
+  await page.waitForTimeout(180);
   await page.mouse.click(700, 310);
   await page.waitForTimeout(250);
   expect(await page.evaluate(() => (window as any).__ALCHEMY_BATTLE__.pendingFusion())).toBeNull();
 });
+
 

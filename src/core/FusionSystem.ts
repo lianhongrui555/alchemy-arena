@@ -178,7 +178,7 @@ function createCombatFusion(a: CardDefinition, b: CardDefinition, random: Random
     tags: [...new Set([...primary.tags, ...secondary.tags, 'fusion'])],
     powerScore: targetPower,
     targeting: 'ground',
-    artKey: `${primary.artKey}_fusion`,
+    artKey: `fusion_${primary.artKey}_${secondary.id}_${variation}`,
     effectId: 'fusion_generic_combat',
     description: `熔铸体：${primary.name}的躯壳与${secondary.name}的特性融合。`,
     direction: 'combat',
@@ -216,7 +216,7 @@ function createMysticFusion(a: CardDefinition, b: CardDefinition, random: Random
       tags: [...new Set([...a.tags, ...b.tags, 'fusion', 'trap'])],
       powerScore: targetPower,
       targeting: 'ground',
-      artKey: 'trap_fusion_generic',
+      artKey: `fusion_mystic_trap_${a.id}_${b.id}_${variation}`,
       effectId: 'fusion_generic_trap',
       description: '不稳定的炼金陷阱，触发后释放混合效果。',
       direction: 'mystic',
@@ -231,7 +231,7 @@ function createMysticFusion(a: CardDefinition, b: CardDefinition, random: Random
     tags: [...new Set([...a.tags, ...b.tags, 'fusion', 'spell'])],
     powerScore: targetPower,
     targeting: 'area',
-    artKey: 'spell_fusion_generic',
+    artKey: `fusion_mystic_spell_${a.id}_${b.id}_${variation}`,
     effectId: 'fusion_generic_spell',
     description: '向目标区域释放不稳定的炼金混合术式。',
     direction: 'mystic',
@@ -263,3 +263,4 @@ export function getFusionPreviewCost(a: CardDefinition, b: CardDefinition): numb
 export function listSignaturePairs(): Array<[string, string]> {
   return SIGNATURE_RECIPES.map((recipe) => [...recipe.pair] as [string, string]);
 }
+

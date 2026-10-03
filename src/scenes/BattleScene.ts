@@ -8,7 +8,7 @@ import { loadSave } from '../core/save';
 import { CARDS, getCard } from '../data/cards';
 import { getStage } from '../data/levels';
 import type { BattleEvent, FusionResult, Lane, Side, StageConfig, TowerState, UnitState } from '../core/types';
-import { createButton, createPanel } from '../ui/components';
+import { cardTypeName, createButton, createPanel } from '../ui/components';
 import { ensureFusionTexture } from '../ui/placeholderArt';
 
 export class BattleScene extends Phaser.Scene {
@@ -333,27 +333,85 @@ export class BattleScene extends Phaser.Scene {
     this.fusionSelection = [];
     this.refreshFusionControls();
     this.refreshHandUi();
-    this.showFusionReveal(result);
+    const sourceArtKeys = ids.map((id) => getCard(id!).artKey) as [string, string];
+    this.playFusionAnimation(result, sourceArtKeys);
   }
 
-  private showFusionReveal(result: FusionResult): void {
+  private playFusionAnimation(result: FusionResult, sourceArtKeys: [string, string]): void {
+    const accent = result.signature ? COLORS.gold : result.direction === 'combat' ? COLORS.player : COLORS.purple;
+    const overlay = this.add.container(0, 0).setDepth(60);
+    const blocker = this.add.rectangle(960, 540, 1920, 1080, 0x08060c, 0.88).setInteractive();
+    const glow = this.add.circle(960, 520, 210, accent, 0.08).setStrokeStyle(4, accent, 0.5);
+    const ring = this.add.circle(960, 520, 82, 0x241a2e, 0.98).setStrokeStyle(8, accent, 0.95);
+    const innerRing = this.add.circle(960, 520, 48, 0x120f16, 0.98).setStrokeStyle(4, 0xffffff, 0.32);
+    const sourceA = this.add.image(650, 520, sourceArtKeys[0]).setDisplaySize(118, 118);
+    const sourceB = this.add.image(1270, 520, sourceArtKeys[1]).setDisplaySize(118, 118);
+    const title = this.add.text(960, 325, result.signature ? '稀有共鸣正在形成……' : '炼金素材开始融合……', {
+      fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '30px', color: result.signature ? '#ffe09a' : '#d8c9e5', fontStyle: 'bold',
+    }).setOrigin(0.5);
+    const hint = this.add.text(960, 720, '随机结果由两张素材的标签共同决定', {
+      fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '20px', color: '#9f91aa',
+    }).setOrigin(0.5);
+    overlay.add([blocker, glow, ring, innerRing, sourceA, sourceB, title, hint]);
+
+    const sparks: Phaser.GameObjects.Arc[] = [];
+    for (let index = 0; index < 14; index += 1) {
+      const angle = (Math.PI * 2 * index) / 14;
+      const spark = this.add.circle(960 + Math.cos(angle) * 150, 520 + Math.sin(angle) * 150, 5, result.signature ? COLORS.gold : accent, 0.95);
+      sparks.push(spark);
+      overlay.add(spark);
+      this.tweens.add({ targets: spark, x: 960, y: 520, alpha: 0.2, duration: 620 + index * 12, ease: 'Cubic.in' });
+    }
+
+    this.tweens.add({ targets: sourceA, x: 960, y: 520, scaleX: 0.38, scaleY: 0.38, angle: 360, alpha: 0.2, duration: 720, ease: 'Cubic.in' });
+    this.tweens.add({ targets: sourceB, x: 960, y: 520, scaleX: 0.38, scaleY: 0.38, angle: -360, alpha: 0.2, duration: 720, ease: 'Cubic.in' });
+    this.tweens.add({ targets: ring, scaleX: 1.38, scaleY: 1.38, angle: 180, duration: 720, ease: 'Sine.inOut' });
+    this.tweens.add({ targets: glow, scaleX: 1.25, scaleY: 1.25, alpha: 0.34, yoyo: true, duration: 360, ease: 'Sine.inOut' });
+    this.tweens.add({ targets: innerRing, scaleX: 0.35, scaleY: 0.35, alpha: 0, duration: 720, ease: 'Cubic.in' });
+
+    this.time.delayedCall(740, () => {
+      sparks.forEach((spark) => spark.destroy());
+      overlay.destroy(true);
+      this.showFusionReveal(result, sourceArtKeys);
+    });
+  }
+
+  private showFusionReveal(result: FusionResult, sourceArtKeys: [string, string]): void {
     const artKey = ensureFusionTexture(this, result);
-    const overlay = this.add.container(0, 0).setDepth(50);
-    const blocker = this.add.rectangle(960, 540, 1920, 1080, 0x09070c, 0.78).setInteractive();
-    const panel = createPanel(this, 960, 520, 640, 520, 1);
-    const ring = this.add.circle(0, -115, 78, 0x2d2038, 1).setStrokeStyle(7, result.signature ? COLORS.gold : COLORS.purple, 1);
-    const art = this.add.image(0, -115, artKey).setDisplaySize(112, 112);
-    const title = this.add.text(0, -20, result.signature ? '招牌配方！' : '随机熔铸完成', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '22px', color: result.signature ? '#f6dfaa' : '#c9b8d6' }).setOrigin(0.5);
-    const name = this.add.text(0, 35, result.name, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '40px', color: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5);
-    const description = this.add.text(0, 112, result.description, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '20px', color: '#c9b8d6', align: 'center', wordWrap: { width: 540 } }).setOrigin(0.5);
-    panel.add([ring, art, title, name, description]);
+    const accent = result.signature ? COLORS.gold : result.direction === 'combat' ? COLORS.player : COLORS.purple;
+    const overlay = this.add.container(0, 0).setDepth(60);
+    const blocker = this.add.rectangle(960, 540, 1920, 1080, 0x09070c, 0.82).setInteractive();
+    const panel = createPanel(this, 960, 525, 720, 570, 1);
+    const outerGlow = this.add.circle(0, -132, 92, accent, result.signature ? 0.16 : 0.08).setStrokeStyle(result.signature ? 8 : 5, accent, 0.95);
+    const ring = this.add.circle(0, -132, 76, 0x2d2038, 1).setStrokeStyle(6, accent, 1);
+    const art = this.add.image(0, -132, artKey).setDisplaySize(132, 132);
+    const title = this.add.text(0, -34, result.signature ? '★ 招牌配方触发 ★' : '随机熔铸完成', {
+      fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '23px', color: result.signature ? '#f6dfaa' : '#c9b8d6', fontStyle: 'bold',
+    }).setOrigin(0.5);
+    const name = this.add.text(0, 25, result.name, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '42px', color: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5);
+    const meta = this.add.text(0, 76, `${cardTypeName(result.type)} · ${result.cost} 费 · 投入 ${getCard(result.sourceCardIds[0]!).name} + ${getCard(result.sourceCardIds[1]!).name}`, {
+      fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '18px', color: '#d8c9e5', align: 'center', wordWrap: { width: 620 },
+    }).setOrigin(0.5);
+    const description = this.add.text(0, 139, result.description, {
+      fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '21px', color: '#c9b8d6', align: 'center', wordWrap: { width: 600 },
+    }).setOrigin(0.5);
+    panel.add([outerGlow, ring, art, title, name, meta, description]);
     overlay.add([blocker, panel]);
-    const button = createButton(this, 960, 720, 260, 66, '进入待部署槽', () => overlay.destroy(true), { fill: COLORS.gold, hoverFill: 0xffd775, fontSize: 23 });
-    button.setDepth(51);
-    overlay.setAlpha(0);
-    this.tweens.add({ targets: overlay, alpha: 1, duration: 220 });
-  }
 
+    const button = createButton(this, 960, 755, 300, 72, '进入待部署槽', () => overlay.destroy(true), {
+      fill: result.signature ? COLORS.gold : COLORS.parchmentDark,
+      hoverFill: result.signature ? 0xffd775 : 0xdcc68f,
+      fontSize: 24,
+    });
+    overlay.add(button);
+    overlay.setAlpha(0);
+    overlay.setScale(0.94);
+    this.tweens.add({ targets: overlay, alpha: 1, scaleX: 1, scaleY: 1, duration: 260, ease: 'Back.out' });
+    if (result.signature) {
+      this.cameras.main.shake(180, 0.005);
+      this.createBurst(960, 520, COLORS.gold);
+    }
+  }
   private renderPendingFusion(): void {
     this.pendingLayer?.removeAll(true);
     const pending = this.simulation.getPendingFusion('player');
@@ -542,6 +600,7 @@ function outerRing(scene: Phaser.Scene, x: number, y: number): void {
   const ring = scene.add.circle(x, y, 20, 0xffffff, 0).setStrokeStyle(8, COLORS.gold, 1).setDepth(10);
   scene.tweens.add({ targets: ring, radius: 130, alpha: 0, duration: 600, onComplete: () => ring.destroy() });
 }
+
 
 
 
