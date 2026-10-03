@@ -122,16 +122,21 @@ export class BattleScene extends Phaser.Scene {
     this.phaseText = this.add.text(960, 82, '常规时间', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '17px', color: '#a99db1' }).setOrigin(0.5);
     this.crownsText = this.add.text(1810, 52, '皇冠 0 : 0', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '22px', color: '#f6dfaa' }).setOrigin(1, 0.5);
 
-    this.add.rectangle(330, 893, 520, 26, 0x2b2530, 1).setStrokeStyle(3, 0x786c82, 1);
-    this.elixirBar = this.add.rectangle(72, 893, 0, 20, 0xb85ce0, 1).setOrigin(0, 0.5);
-    this.playerElixirText = this.add.text(330, 861, '我方圣水 5.0 / 10', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '18px', color: '#e5d8f1' }).setOrigin(0.5);
-    this.enemyElixirText = this.add.text(1540, 893, '敌方圣水', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '17px', color: '#b9a7c6' }).setOrigin(0.5);
-    createButton(this, 1790, 888, 150, 54, '投降', () => this.confirmSurrender(), { fill: 0x6f4c54, hoverFill: 0xa55d65, textColor: '#fff4f4', fontSize: 20 });
+    this.add.text(590, 34, '圣水储备', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '19px', color: '#d9b8f0', fontStyle: 'bold' }).setOrigin(0.5).setDepth(12);
+    this.add.rectangle(590, 83, 500, 34, 0x21172b, 1).setStrokeStyle(4, 0x9d72c7, 1).setDepth(12);
+    for (let index = 1; index < 10; index += 1) {
+      this.add.rectangle(340 + index * 50, 83, 2, 24, 0x101018, 0.38).setDepth(13);
+    }
+    this.elixirBar = this.add.rectangle(340, 83, 0, 26, 0xb85ce0, 1).setOrigin(0, 0.5).setDepth(13);
+    this.playerElixirText = this.add.text(590, 83, '我方圣水 5.0 / 10', {
+      fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '24px', color: '#ffffff', fontStyle: 'bold', stroke: '#261832', strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(14);
+    this.enemyElixirText = this.add.text(1540, 83, '敌方圣水 5.0', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '20px', color: '#d7bdca', fontStyle: 'bold' }).setOrigin(0.5).setDepth(12);
     this.toastText = this.add.text(960, 842, '', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '20px', color: '#ffe08a', backgroundColor: '#1b1720cc', padding: { x: 14, y: 7 } }).setOrigin(0.5).setDepth(20);
   }
 
   private createHandUi(): void {
-    this.add.rectangle(960, 968, 1900, 215, 0x17131f, 0.98).setStrokeStyle(4, COLORS.parchmentDark, 0.9);
+    this.add.rectangle(960, 968, 1900, 215, 0x17131f, 0.98).setStrokeStyle(4, COLORS.parchmentDark, 0.9).setDepth(8);
     createButton(this, 220, 889, 220, 58, '熔铸工坊', () => this.toggleFusionMode(), { fill: COLORS.purple, hoverFill: 0xa576dc, textColor: '#ffffff', fontSize: 22 });
     this.fusionButtonText = this.add.text(220, 842, '选择两张牌进入随机熔铸', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '16px', color: '#cab6dc' }).setOrigin(0.5);
     this.cancelFusionButton = createButton(this, 1660, 889, 150, 58, '取消选择', () => this.toggleFusionMode(false), { fontSize: 20 }).setVisible(false);
@@ -522,11 +527,9 @@ export class BattleScene extends Phaser.Scene {
         this.attackAudioCooldown = 0.18;
       }
     } else if (event.type === 'spell' && event.x !== undefined && event.y !== undefined) {
-      const ring = this.add.circle(event.x, event.y, 20, 0xffffff, 0).setStrokeStyle(7, 0xd9a4ff, 0.9).setDepth(5);
-      this.tweens.add({ targets: ring, radius: 100, alpha: 0, duration: 320, onComplete: () => ring.destroy() });
+      this.playSpellEffect(event);
     } else if (event.type === 'trap-trigger' && event.x !== undefined && event.y !== undefined) {
-      const ring = this.add.circle(event.x, event.y, 18, 0xffffff, 0).setStrokeStyle(6, COLORS.green, 1).setDepth(5);
-      this.tweens.add({ targets: ring, radius: 125, alpha: 0, duration: 430, onComplete: () => ring.destroy() });
+      this.playTrapEffect(event);
       audioManager.playSfx('tower');
     } else if (event.type === 'unit-died' && event.x !== undefined && event.y !== undefined) {
       this.createBurst(event.x, event.y, event.side === 'player' ? COLORS.player : COLORS.enemy);
@@ -534,6 +537,165 @@ export class BattleScene extends Phaser.Scene {
       outerRing(this, event.x, event.y);
       audioManager.playSfx('tower');
     }
+  }
+
+  private playSpellEffect(event: BattleEvent): void {
+    if (!event.cardId || event.x === undefined || event.y === undefined) return;
+    const side = event.side ?? 'player';
+    const origin = side === 'player' ? TOWER_POSITIONS.playerKing : TOWER_POSITIONS.enemyKing;
+    const cardArtKey = CARDS[event.cardId]?.artKey;
+    const projectile = this.add.image(origin.x, origin.y, cardArtKey ?? 'particle_dot').setDepth(11);
+    if (cardArtKey) projectile.setDisplaySize(46, 46);
+    else projectile.setDisplaySize(20, 20).setTint(side === 'player' ? COLORS.player : COLORS.enemy);
+    this.tweens.add({
+      targets: projectile,
+      x: event.x,
+      y: event.y,
+      angle: side === 'player' ? 180 : -180,
+      duration: 185,
+      ease: 'Quad.in',
+      onComplete: () => {
+        projectile.destroy();
+        this.spawnSpellImpact(event.cardId!, event.x!, event.y!);
+      },
+    });
+  }
+
+  private spawnSpellImpact(cardId: string, x: number, y: number): void {
+    if (cardId === 'flame_flask') this.playFlameEffect(x, y);
+    else if (cardId === 'frost_reagent') this.playFrostEffect(x, y);
+    else if (cardId === 'growth_serum') this.playGrowthEffect(x, y);
+    else if (cardId === 'corrosion_mire') this.playAcidEffect(x, y);
+    else if (cardId === 'blast_rune' || cardId === 'trap_rune') this.playRuneEffect(x, y);
+    else if (cardId === 'fusion_icefire') { this.playFlameEffect(x, y); this.playFrostEffect(x, y); }
+    else if (cardId === 'fusion_proliferation') { this.playGrowthEffect(x, y); this.spawnIconBurst(x, y, 'unit_spore', 6, 92); }
+    else if (cardId === 'fusion_forge_rider') { this.playForgeEffect(x, y); }
+    else if (cardId === 'fusion_thunder_dive') { this.playRuneEffect(x, y); this.spawnRing(x, y, 0x6fe9ff, 145, 430, 7); }
+    else if (cardId === 'fusion_acid_cannon') this.playAcidEffect(x, y);
+    else if (cardId === 'fusion_frost_spring') { this.playFrostEffect(x, y); this.playGrowthEffect(x, y); }
+    else if (cardId.startsWith('fusion_mystic_trap_')) this.playAcidEffect(x, y);
+    else this.playGenericSpellEffect(x, y);
+  }
+
+  private playTrapEffect(event: BattleEvent): void {
+    if (!event.cardId || event.x === undefined || event.y === undefined) return;
+    this.spawnSpellImpact(event.cardId, event.x, event.y);
+  }
+
+  private playFlameEffect(x: number, y: number): void {
+    this.spawnRing(x, y, 0xff5a22, 132, 430, 9);
+    this.spawnRing(x, y, 0xffc244, 92, 340, 6);
+    for (let index = 0; index < 18; index += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = 45 + Math.random() * 105;
+      const dot = this.add.circle(x, y, 4 + Math.random() * 7, [0xff4d1f, 0xff8c2f, 0xffd35c][index % 3]!, 0.96).setDepth(12);
+      this.tweens.add({
+        targets: dot,
+        x: x + Math.cos(angle) * distance,
+        y: y + Math.sin(angle) * distance - 22,
+        alpha: 0,
+        scaleX: 0.3,
+        scaleY: 0.3,
+        duration: 300 + Math.random() * 220,
+        ease: 'Cubic.out',
+        onComplete: () => dot.destroy(),
+      });
+    }
+  }
+
+  private playFrostEffect(x: number, y: number): void {
+    this.spawnRing(x, y, 0x79dcff, 145, 460, 9);
+    this.spawnRing(x, y, 0xe6fbff, 105, 330, 5);
+    for (let index = 0; index < 14; index += 1) {
+      const angle = (Math.PI * 2 * index) / 14;
+      const shard = this.add.rectangle(x, y, 7, 25, 0xbcecff, 0.95).setDepth(12).setRotation(angle);
+      this.tweens.add({
+        targets: shard,
+        x: x + Math.cos(angle) * (70 + (index % 4) * 16),
+        y: y + Math.sin(angle) * (70 + (index % 4) * 16),
+        rotation: angle + Math.PI,
+        alpha: 0,
+        duration: 360 + index * 18,
+        ease: 'Cubic.out',
+        onComplete: () => shard.destroy(),
+      });
+    }
+  }
+
+  private playGrowthEffect(x: number, y: number): void {
+    this.spawnRing(x, y, 0x78e47b, 168, 520, 8);
+    this.spawnRing(x, y, 0xd9ff8d, 112, 400, 5);
+    for (let index = 0; index < 9; index += 1) {
+      const cross = this.add.text(x - 70 + index * 18, y + 22, '+', {
+        fontFamily: 'monospace', fontSize: `${22 + (index % 3) * 7}px`, color: '#baff88', fontStyle: 'bold',
+      }).setOrigin(0.5).setDepth(12);
+      this.tweens.add({ targets: cross, y: y - 72 - (index % 3) * 20, alpha: 0, duration: 620 + index * 30, ease: 'Sine.out', onComplete: () => cross.destroy() });
+    }
+  }
+
+  private playAcidEffect(x: number, y: number): void {
+    const puddle = this.add.ellipse(x, y, 28, 12, 0x5dbb57, 0.82).setDepth(11);
+    this.tweens.add({ targets: puddle, scaleX: 5.2, scaleY: 4.2, alpha: 0, duration: 620, ease: 'Cubic.out', onComplete: () => puddle.destroy() });
+    for (let index = 0; index < 16; index += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const drop = this.add.circle(x, y - 10, 5 + Math.random() * 6, index % 2 ? 0x78d56f : 0xb5e56f, 0.92).setDepth(12);
+      this.tweens.add({ targets: drop, x: x + Math.cos(angle) * 110, y: y + Math.sin(angle) * 64, alpha: 0, duration: 380 + Math.random() * 260, onComplete: () => drop.destroy() });
+    }
+  }
+
+  private playRuneEffect(x: number, y: number): void {
+    this.spawnRing(x, y, 0xa66cff, 148, 480, 8);
+    this.spawnLightning(x, y, 0xd79cff, 9);
+    this.spawnLightning(x, y, 0xff5b78, 5);
+  }
+
+  private playForgeEffect(x: number, y: number): void {
+    this.spawnRing(x, y, 0xffa33c, 140, 430, 10);
+    this.spawnRadialBurst(x, y, 0xffd36a, 18, 125);
+  }
+
+  private playGenericSpellEffect(x: number, y: number): void {
+    this.spawnRing(x, y, 0xb879e8, 125, 420, 7);
+    this.spawnRadialBurst(x, y, 0xe2c4ff, 14, 105);
+  }
+
+  private spawnRing(x: number, y: number, color: number, radius: number, duration: number, width: number): void {
+    const ring = this.add.circle(x, y, 12, 0xffffff, 0).setStrokeStyle(width, color, 0.95).setDepth(11);
+    this.tweens.add({ targets: ring, radius, alpha: 0, duration, ease: 'Cubic.out', onComplete: () => ring.destroy() });
+  }
+
+  private spawnRadialBurst(x: number, y: number, color: number, count: number, distance: number): void {
+    for (let index = 0; index < count; index += 1) {
+      const angle = (Math.PI * 2 * index) / count;
+      const dot = this.add.rectangle(x, y, 7, 7, color, 0.94).setDepth(12).setRotation(angle);
+      this.tweens.add({ targets: dot, x: x + Math.cos(angle) * distance, y: y + Math.sin(angle) * distance, alpha: 0, duration: 320 + index * 12, onComplete: () => dot.destroy() });
+    }
+  }
+
+  private spawnIconBurst(x: number, y: number, textureKey: string, count: number, distance: number): void {
+    for (let index = 0; index < count; index += 1) {
+      const angle = (Math.PI * 2 * index) / count;
+      const icon = this.add.image(x, y, textureKey).setDisplaySize(44, 44).setDepth(12);
+      this.tweens.add({ targets: icon, x: x + Math.cos(angle) * distance, y: y + Math.sin(angle) * distance, scaleX: 0.2, scaleY: 0.2, alpha: 0, duration: 520, onComplete: () => icon.destroy() });
+    }
+  }
+
+  private spawnLightning(x: number, y: number, color: number, count: number): void {
+    const graphics = this.add.graphics().setDepth(13);
+    graphics.lineStyle(6, color, 0.95);
+    for (let index = 0; index < count; index += 1) {
+      const angle = (Math.PI * 2 * index) / count + Math.random() * 0.18;
+      const endX = x + Math.cos(angle) * (95 + Math.random() * 55);
+      const endY = y + Math.sin(angle) * (95 + Math.random() * 55);
+      const midX = x + Math.cos(angle + (Math.random() - 0.5) * 0.5) * 58;
+      const midY = y + Math.sin(angle + (Math.random() - 0.5) * 0.5) * 58;
+      graphics.beginPath();
+      graphics.moveTo(x, y);
+      graphics.lineTo(midX, midY);
+      graphics.lineTo(endX, endY);
+      graphics.strokePath();
+    }
+    this.tweens.add({ targets: graphics, alpha: 0, duration: 280, onComplete: () => graphics.destroy() });
   }
 
   private createBurst(x: number, y: number, color: number): void {
@@ -553,7 +715,7 @@ export class BattleScene extends Phaser.Scene {
     this.phaseText?.setText(snapshot.overtime ? '加时 · 双倍圣水' : '常规时间');
     this.playerElixirText?.setText(`我方圣水 ${snapshot.playerElixir.toFixed(1)} / 10`);
     this.enemyElixirText?.setText(`敌方圣水 ${snapshot.enemyElixir.toFixed(1)}${this.stage.elixirMultiplier > 1 ? ' · 加速' : ''}`);
-    this.elixirBar?.setDisplaySize(5.2 * snapshot.playerElixir, 20);
+    this.elixirBar?.setDisplaySize(50 * snapshot.playerElixir, 26);
     const playerCrowns = snapshot.towers.filter((tower) => tower.side === 'enemy' && !tower.alive).reduce((sum, tower) => sum + (tower.lane === 'king' ? 3 : 1), 0);
     const enemyCrowns = snapshot.towers.filter((tower) => tower.side === 'player' && !tower.alive).reduce((sum, tower) => sum + (tower.lane === 'king' ? 3 : 1), 0);
     this.crownsText?.setText(`皇冠 ${playerCrowns} : ${enemyCrowns}`);
@@ -600,6 +762,7 @@ function outerRing(scene: Phaser.Scene, x: number, y: number): void {
   const ring = scene.add.circle(x, y, 20, 0xffffff, 0).setStrokeStyle(8, COLORS.gold, 1).setDepth(10);
   scene.tweens.add({ targets: ring, radius: 130, alpha: 0, duration: 600, onComplete: () => ring.destroy() });
 }
+
 
 
 
