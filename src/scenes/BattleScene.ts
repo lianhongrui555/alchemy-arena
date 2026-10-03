@@ -374,6 +374,7 @@ export class BattleScene extends Phaser.Scene {
       const key = tower.lane === 'king' ? `tower_king_${tower.side}` : `tower_guard_${tower.side}`;
       const container = this.add.container(tower.x, tower.y);
       const image = this.add.image(0, 0, key).setDisplaySize(tower.lane === 'king' ? 102 : 88, tower.lane === 'king' ? 102 : 88);
+      if (tower.side === 'enemy') image.setTint(0xe88f94);
       const barBack = this.add.rectangle(0, 53, 90, 12, 0x201827, 1).setStrokeStyle(2, 0x000000, 0.7);
       const bar = this.add.rectangle(-43, 53, 86, 8, tower.side === 'player' ? COLORS.player : COLORS.enemy, 1).setOrigin(0, 0.5).setName('hp-bar');
       const label = this.add.text(0, -63, tower.lane === 'king' ? '国王塔' : '守卫塔', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '15px', color: '#f1e7dc' }).setOrigin(0.5);
