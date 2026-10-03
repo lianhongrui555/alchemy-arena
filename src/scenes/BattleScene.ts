@@ -4,10 +4,12 @@ import { AIController } from '../core/AIController';
 import { BattleSimulation } from '../core/BattleSimulation';
 import { ARENA, BATTLE_RULES, COLORS, GAME_WIDTH, TOWER_POSITIONS } from '../core/constants';
 import { createFusionResult, getFusionCost } from '../core/FusionSystem';
-import { loadSave } from '../core/save';
+import { completeJourneyNode } from '../core/JourneySystem';
+import { getActiveDeck, loadSave, setTutorialState, updateSettings } from '../core/save';
 import { CARDS, getCard } from '../data/cards';
-import { getStage } from '../data/levels';
-import type { BattleEvent, FusionResult, Lane, Side, StageConfig, TowerState, UnitState } from '../core/types';
+import { getJourneyNode, getStage } from '../data/levels';
+import { getModifier } from '../data/journey';
+import type { BattleEvent, BattleSceneData, CatalystKind, FusionResult, Lane, Side, StageConfig, TowerState, UnitState } from '../core/types';
 import { cardTypeName, createButton, createPanel } from '../ui/components';
 import { ensureFusionTexture } from '../ui/placeholderArt';
 
@@ -16,6 +18,14 @@ export class BattleScene extends Phaser.Scene {
   private simulation!: BattleSimulation;
   private ai!: AIController;
   private fastMode = false;
+  private paused = false;
+  private speedMultiplier = 1;
+  private sceneData?: BattleSceneData;
+  private practiceInfinite = false;
+  private practiceTimer = true;
+  private practiceAiEnabled = false;
+  private tutorialMode = false;
+  private tutorialStep = 0;
   private fixedAccumulator = 0;
   private selectedHandIndex = -1;
   private fusionMode = false;
@@ -42,14 +52,30 @@ export class BattleScene extends Phaser.Scene {
 
   constructor() { super('Battle'); }
 
+  init(data?: BattleSceneData): void { this.sceneData = data; }
+
   create(): void {
-    const stageId = (this.registry.get('selectedStageId') as number | undefined) ?? 1;
+    const stageId = this.sceneData?.stageId ?? (this.registry.get('selectedStageId') as number | undefined) ?? 1;
     const save = loadSave();
     this.stage = getStage(stageId);
     this.fastMode = Boolean(this.registry.get('fastBattle'));
+    this.tutorialMode = this.sceneData?.mode === 'tutorial';
+    this.tutorialStep = this.sceneData?.tutorialStep ?? 0;
+    this.practiceAiEnabled = this.sceneData?.mode === 'practice' && this.sceneData.practice?.opponent !== 'off';
+    this.practiceInfinite = this.sceneData?.practice?.infiniteElixir ?? false;
+    this.practiceTimer = this.sceneData?.practice?.timerEnabled ?? true;
+    this.speedMultiplier = save.settings.preferredBattleSpeed;
     const regularSeconds = this.fastMode ? 8 : BATTLE_RULES.regularSeconds;
     const overtimeSeconds = this.fastMode ? 4 : BATTLE_RULES.overtimeSeconds;
-    this.simulation = new BattleSimulation(this.stage, save.deckCardIds, this.stage.deck, { regularSeconds, overtimeSeconds });
+    this.simulation = new BattleSimulation(this.stage, this.sceneData?.deckIds ?? getActiveDeck(save), this.stage.deck, {
+      regularSeconds,
+      overtimeSeconds,
+      timerEnabled: this.practiceTimer,
+      infiniteElixir: this.practiceInfinite,
+      modifierId: this.sceneData?.modifierId,
+      blessings: this.sceneData?.blessings,
+      bossShield: this.sceneData?.nodeId === 'l3_crown',
+    });
     this.ai = new AIController();
     this.cameras.main.setBackgroundColor('#100d16');
     this.drawArena();
@@ -57,11 +83,13 @@ export class BattleScene extends Phaser.Scene {
     this.createHud();
     this.createHandUi();
     this.registerInput();
+    if (this.tutorialMode) this.setupTutorial();
+    if (this.sceneData?.modifierId) this.showModifierBanner(this.sceneData.modifierId);
 
-    this.add.text(960, 884, '未选择卡牌时点击手牌；点击战场部署，或直接拖拽卡牌。', {
+    this.add.text(960, 884, '拖动手牌到合法区域松手部署；单击卡牌查看详情。', {
       fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '18px', color: '#9e94a7',
     }).setOrigin(0.5);
-    this.add.text(960, 1048, '熔铸结果完全随机，但不会弱于投入卡牌中的最高价值。', {
+    this.add.text(960, 1048, '第一张定主体，第二张定词缀；同组合和稀有度结果固定。', {
       fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '16px', color: '#73697d',
     }).setOrigin(0.5);
     if (this.registry.get('debugBattle')) {
@@ -79,13 +107,14 @@ export class BattleScene extends Phaser.Scene {
 
   update(_time: number, deltaMs: number): void {
     const delta = Math.min(deltaMs / 1000, 0.1);
-    const speedMultiplier = this.fastMode ? 18 : 1;
+    if (this.paused) return;
+    const speedMultiplier = this.fastMode ? 18 : this.speedMultiplier;
     this.fixedAccumulator += delta * speedMultiplier;
     const step = 1 / 60;
     let iterations = 0;
     while (this.fixedAccumulator >= step && iterations < 180) {
       this.simulation.update(step);
-      this.ai.update(step, this.simulation);
+      if (this.sceneData?.mode !== 'practice' || this.practiceAiEnabled) this.ai.update(step, this.simulation);
       this.fixedAccumulator -= step;
       iterations += 1;
     }
@@ -97,19 +126,28 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private drawArena(): void {
-    this.add.rectangle(960, 488, 1580, 725, 0x243a34, 1).setStrokeStyle(5, 0x6f5a3e, 1);
-    for (let x = ARENA.left; x <= ARENA.right; x += 80) {
-      this.add.line(0, 0, x, ARENA.top, x, ARENA.bottom, 0x6b8976, 0.11).setOrigin(0);
+    const theme = this.sceneData?.nodeId ? getJourneyNode(this.sceneData.nodeId).themeId : this.stage.themeId;
+    const palettes = {
+      trial: { grass: 0x243a34, grassLight: 0x31584a, river: 0x2d7fa1, bridge: 0x8f7048, particle: 0xf0b84f },
+      spore: { grass: 0x263c2c, grassLight: 0x426347, river: 0x438b78, bridge: 0x8a7146, particle: 0x7edb65 },
+      silver: { grass: 0x34373e, grassLight: 0x5c6068, river: 0x426d87, bridge: 0xa68a5a, particle: 0xd5d8e0 },
+      frost: { grass: 0x26383e, grassLight: 0x41646c, river: 0x3f9bc2, bridge: 0x8298a0, particle: 0xbcecff },
+      crown: { grass: 0x3a2b31, grassLight: 0x60404a, river: 0x784f7e, bridge: 0xb18b52, particle: 0xf6dfaa },
+    } as const;
+    const palette = palettes[theme];
+    this.add.rectangle(960, 488, 1580, 725, palette.grass, 1).setStrokeStyle(5, 0x6f5a3e, 1);
+    for (let x = ARENA.left; x <= ARENA.right; x += 80) this.add.line(0, 0, x, ARENA.top, x, ARENA.bottom, palette.grassLight, 0.28).setOrigin(0);
+    for (let y = ARENA.top; y <= ARENA.bottom; y += 80) this.add.line(0, 0, ARENA.left, y, ARENA.right, y, palette.grassLight, 0.28).setOrigin(0);
+    this.add.rectangle(960, 488, 80, 725, palette.river, 1).setStrokeStyle(3, 0x75d5eb, 0.75);
+    for (let y = 142; y < 846; y += 34) this.add.line(0, 0, 925, y, 995, y + 18, 0xcceff5, 0.2);
+    this.add.rectangle(960, ARENA.topLaneY, 110, 112, palette.bridge, 1).setStrokeStyle(4, 0xd2b06e, 1);
+    this.add.rectangle(960, ARENA.bottomLaneY, 110, 112, palette.bridge, 1).setStrokeStyle(4, 0xd2b06e, 1);
+    for (let index = 0; index < 22; index += 1) {
+      const x = ARENA.left + 45 + ((index * 127) % 1510);
+      const y = ARENA.top + 35 + ((index * 83) % 660);
+      const dot = this.add.circle(x, y, 2 + (index % 3), palette.particle, 0.22).setDepth(1);
+      this.tweens.add({ targets: dot, y: y - 12 - (index % 4) * 4, alpha: 0.04, duration: 1200 + index * 35, yoyo: true, repeat: -1 });
     }
-    for (let y = ARENA.top; y <= ARENA.bottom; y += 80) {
-      this.add.line(0, 0, ARENA.left, y, ARENA.right, y, 0x6b8976, 0.11).setOrigin(0);
-    }
-    this.add.rectangle(960, 488, 80, 725, COLORS.river, 1).setStrokeStyle(3, 0x5dc1df, 0.75);
-    for (let y = 142; y < 846; y += 34) this.add.line(0, 0, 925, y, 995, y + 18, 0xb9ecf3, 0.2);
-    this.add.rectangle(960, ARENA.topLaneY, 110, 112, COLORS.bridge, 1).setStrokeStyle(4, 0xd2b06e, 1);
-    this.add.rectangle(960, ARENA.bottomLaneY, 110, 112, COLORS.bridge, 1).setStrokeStyle(4, 0xd2b06e, 1);
-    this.add.rectangle(960, ARENA.topLaneY, 1580, 168, COLORS.gold, 0.025);
-    this.add.rectangle(960, ARENA.bottomLaneY, 1580, 168, COLORS.gold, 0.025);
     this.add.text(560, 152, '我方部署区', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '18px', color: '#65d1e6' }).setOrigin(0.5);
     this.add.text(1370, 152, '敌方部署区', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '18px', color: '#e77a82' }).setOrigin(0.5);
   }
@@ -132,6 +170,8 @@ export class BattleScene extends Phaser.Scene {
       fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '24px', color: '#ffffff', fontStyle: 'bold', stroke: '#261832', strokeThickness: 4,
     }).setOrigin(0.5).setDepth(14);
     this.enemyElixirText = this.add.text(1540, 83, '敌方圣水 5.0', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '20px', color: '#d7bdca', fontStyle: 'bold' }).setOrigin(0.5).setDepth(12);
+    createButton(this, 1635, 83, 130, 48, this.speedMultiplier === 2 ? '2× 速度' : '1× 速度', () => this.toggleSpeed(), { fill: 0x3b5060, hoverFill: 0x51748a, textColor: '#ffffff', fontSize: 18 }).setDepth(13);
+    createButton(this, 1785, 83, 130, 48, '暂停', () => this.togglePause(), { fontSize: 18 }).setDepth(13);
     this.toastText = this.add.text(960, 842, '', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '20px', color: '#ffe08a', backgroundColor: '#1b1720cc', padding: { x: 14, y: 7 } }).setOrigin(0.5).setDepth(20);
   }
 
@@ -146,36 +186,9 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private registerInput(): void {
-    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer, objects: Phaser.GameObjects.GameObject[]) => {
-      this.lastPointer = { x: pointer.x, y: pointer.y };
-      const handIndex = this.getHandIndexAt(pointer.x, pointer.y);
-      if (handIndex >= 0) { this.handleHandCardClick(handIndex); return; }
-      if (objects.length > 0 || pointer.y < ARENA.top || pointer.y > ARENA.bottom) return;
-      const lane = this.simulation.getLaneForPosition(pointer.y);
-      if (this.simulation.getPendingFusion('player')) {
-        if (this.simulation.deployPendingFusion('player', lane, pointer.x, pointer.y)) {
-          audioManager.playSfx('deploy');
-          this.pendingLayer?.removeAll(true);
-          this.showToast('融合卡已部署');
-          this.refreshHandUi();
-        } else {
-          this.showToast('该位置无法部署融合卡', true);
-        }
-        return;
-      }
-      if (this.selectedHandIndex < 0) {
-        this.showToast('请先选择一张手牌', true);
-        return;
-      }
-      const success = this.simulation.playHandCard('player', this.selectedHandIndex, lane, pointer.x, pointer.y);
-      if (success) {
-        audioManager.playSfx('deploy');
-        this.selectedHandIndex = -1;
-        this.refreshHandUi();
-      } else {
-        this.showToast('圣水不足、位置无效或已有待部署融合卡', true);
-      }
-    });
+    this.input.mouse?.disableContextMenu();
+    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => { this.lastPointer = { x: pointer.x, y: pointer.y }; });
+    this.input.keyboard?.on('keydown-ESC', () => this.togglePause());
   }
 
   private refreshHandUi(): void {
@@ -203,10 +216,10 @@ export class BattleScene extends Phaser.Scene {
       ? `已选择 ${this.fusionSelection.length}/2 张`
       : this.simulation.getPendingFusion('player')
         ? '已有待部署融合卡'
-        : this.simulation.getFusionBias('player') === 'combat'
-          ? '下一次熔铸：作战类'
-          : this.simulation.getFusionBias('player') === 'mystic'
-            ? '下一次熔铸：诡术类'
+        : this.simulation.getFusionCatalyst('player') === 'order'
+          ? '秩序结晶：稀有度更稳定'
+          : this.simulation.getFusionCatalyst('player') === 'chaos'
+            ? '混沌粉尘：招牌概率提高'
             : '选择两张牌进入随机熔铸');
     this.renderPendingFusion();
   }
@@ -225,6 +238,7 @@ export class BattleScene extends Phaser.Scene {
     box.setData('handIndex', index);
     box.setData('homeX', x);
     box.setData('homeY', y);
+    box.on('pointerdown', () => this.handleHandCardClick(index));
     this.input.setDraggable(box);
     box.on('dragstart', () => {
       if (index < 0) return;
@@ -236,7 +250,14 @@ export class BattleScene extends Phaser.Scene {
     });
     box.on('dragend', (pointer: Phaser.Input.Pointer) => {
       if (index < 0) return;
-      if (pointer.y < ARENA.bottom && pointer.y > ARENA.top && pointer.x > ARENA.left && pointer.x < ARENA.right) {
+      const card = getCard(id);
+      const droppedOnCauldron = pointer.x >= 105 && pointer.x <= 335 && pointer.y >= 845 && pointer.y <= 940;
+      if (!this.fusionMode && card.type === 'catalyst' && droppedOnCauldron && this.simulation.useCatalyst('player', index)) {
+        audioManager.playSfx('fusion');
+        this.refreshHandUi();
+        return;
+      }
+      if (!this.fusionMode && pointer.y < ARENA.bottom && pointer.y > ARENA.top && pointer.x > ARENA.left && pointer.x < ARENA.right) {
         const lane = this.simulation.getLaneForPosition(pointer.y);
         if (this.simulation.playHandCard('player', index, lane, pointer.x, pointer.y)) {
           audioManager.playSfx('deploy');
@@ -244,7 +265,8 @@ export class BattleScene extends Phaser.Scene {
           this.refreshHandUi();
           return;
         }
-        this.showToast('此处无法部署或圣水不足', true);
+        const preview = this.simulation.getDeploymentPreview('player', card, lane, pointer.x, pointer.y);
+        this.showToast(preview.reason === 'not-enough-elixir' ? '圣水不足' : '此处无法部署', true);
       }
       container.setPosition(x, y);
       container.setDepth(8);
@@ -267,17 +289,7 @@ export class BattleScene extends Phaser.Scene {
     const cardId = this.simulation.getHand('player')[index];
     if (!cardId) return;
     const card = getCard(cardId);
-    if (card.type === 'catalyst') {
-      if (this.simulation.useCatalyst('player', index)) {
-        this.selectedHandIndex = -1;
-        this.showToast(`${card.name}已生效`);
-        this.refreshHandUi();
-      } else {
-        this.showToast('圣水不足，无法使用催化剂', true);
-      }
-      return;
-    }
-    if (this.fusionMode) {
+    if (this.fusionMode && card.type !== 'catalyst') {
       const existing = this.fusionSelection.indexOf(index);
       if (existing >= 0) this.fusionSelection.splice(existing, 1);
       else if (this.fusionSelection.length < 2) this.fusionSelection.push(index);
@@ -285,8 +297,15 @@ export class BattleScene extends Phaser.Scene {
       this.refreshHandUi();
       return;
     }
-    this.selectedHandIndex = this.selectedHandIndex === index ? -1 : index;
-    this.refreshHandUi();
+    this.showCardDetail(card);
+  }
+
+  private showCardDetail(card: ReturnType<typeof getCard>): void {
+    const stats = card.stats;
+    const detail = stats
+      ? `${card.name} · ${card.cost}费 · 生命 ${stats.maxHp} · 伤害 ${stats.damage} · 射程 ${stats.range}`
+      : `${card.name} · ${card.cost}费 · ${card.description}`;
+    this.showToast(detail);
   }
 
   private toggleFusionMode(force?: boolean): void {
@@ -307,7 +326,7 @@ export class BattleScene extends Phaser.Scene {
     if (this.fusionSelection.length === 2) {
       const ids = this.fusionSelection.map((index) => this.simulation.getHand('player')[index]).filter(Boolean) as string[];
       if (ids.length === 2) {
-        const cost = getFusionCost(getCard(ids[0]!), getCard(ids[1]!));
+        const cost = getFusionCost(getCard(ids[0]!), getCard(ids[1]!), this.sceneData?.blessings?.['fusion-discount'] ?? 0);
         const label = this.confirmFusionButton?.list.find((item) => item instanceof Phaser.GameObjects.Text) as Phaser.GameObjects.Text | undefined;
         label?.setText(`确认熔铸 ${cost} 费`);
       }
@@ -328,7 +347,7 @@ export class BattleScene extends Phaser.Scene {
       this.showToast('催化剂不能作为熔铸素材', true);
       return;
     }
-    const result = createFusionResult(ids[0]!, ids[1]!, this.simulation.getFusionBias('player'), Math.random, 0.22);
+    const result = createFusionResult(ids[0]!, ids[1]!, this.simulation.getFusionCatalyst('player'), Math.random, this.sceneData?.blessings?.['fusion-discount'] ?? 0);
     if (!this.simulation.fuseCards('player', [this.fusionSelection[0]!, this.fusionSelection[1]!], result)) {
       this.showToast('熔铸失败：圣水不足或状态无效', true);
       return;
@@ -343,7 +362,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private playFusionAnimation(result: FusionResult, sourceArtKeys: [string, string]): void {
-    const accent = result.signature ? COLORS.gold : result.direction === 'combat' ? COLORS.player : COLORS.purple;
+    const accent = result.rarity === 'signature' ? COLORS.gold : result.rarity === 'rare' ? 0x58cfe0 : COLORS.purple;
     const overlay = this.add.container(0, 0).setDepth(60);
     const blocker = this.add.rectangle(960, 540, 1920, 1080, 0x08060c, 0.88).setInteractive();
     const glow = this.add.circle(960, 520, 210, accent, 0.08).setStrokeStyle(4, accent, 0.5);
@@ -351,8 +370,8 @@ export class BattleScene extends Phaser.Scene {
     const innerRing = this.add.circle(960, 520, 48, 0x120f16, 0.98).setStrokeStyle(4, 0xffffff, 0.32);
     const sourceA = this.add.image(650, 520, sourceArtKeys[0]).setDisplaySize(118, 118);
     const sourceB = this.add.image(1270, 520, sourceArtKeys[1]).setDisplaySize(118, 118);
-    const title = this.add.text(960, 325, result.signature ? '稀有共鸣正在形成……' : '炼金素材开始融合……', {
-      fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '30px', color: result.signature ? '#ffe09a' : '#d8c9e5', fontStyle: 'bold',
+    const title = this.add.text(960, 325, result.rarity !== 'common' ? '稀有共鸣正在形成……' : '炼金素材开始融合……', {
+      fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '30px', color: result.rarity === 'signature' ? '#ffe09a' : '#d8c9e5', fontStyle: 'bold',
     }).setOrigin(0.5);
     const hint = this.add.text(960, 720, '随机结果由两张素材的标签共同决定', {
       fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '20px', color: '#9f91aa',
@@ -362,7 +381,7 @@ export class BattleScene extends Phaser.Scene {
     const sparks: Phaser.GameObjects.Arc[] = [];
     for (let index = 0; index < 14; index += 1) {
       const angle = (Math.PI * 2 * index) / 14;
-      const spark = this.add.circle(960 + Math.cos(angle) * 150, 520 + Math.sin(angle) * 150, 5, result.signature ? COLORS.gold : accent, 0.95);
+      const spark = this.add.circle(960 + Math.cos(angle) * 150, 520 + Math.sin(angle) * 150, 5, result.rarity === 'signature' ? COLORS.gold : accent, 0.95);
       sparks.push(spark);
       overlay.add(spark);
       this.tweens.add({ targets: spark, x: 960, y: 520, alpha: 0.2, duration: 620 + index * 12, ease: 'Cubic.in' });
@@ -383,15 +402,15 @@ export class BattleScene extends Phaser.Scene {
 
   private showFusionReveal(result: FusionResult, sourceArtKeys: [string, string]): void {
     const artKey = ensureFusionTexture(this, result);
-    const accent = result.signature ? COLORS.gold : result.direction === 'combat' ? COLORS.player : COLORS.purple;
+    const accent = result.rarity === 'signature' ? COLORS.gold : result.rarity === 'rare' ? 0x58cfe0 : COLORS.purple;
     const overlay = this.add.container(0, 0).setDepth(60);
     const blocker = this.add.rectangle(960, 540, 1920, 1080, 0x09070c, 0.82).setInteractive();
     const panel = createPanel(this, 960, 525, 720, 570, 1);
-    const outerGlow = this.add.circle(0, -132, 92, accent, result.signature ? 0.16 : 0.08).setStrokeStyle(result.signature ? 8 : 5, accent, 0.95);
+    const outerGlow = this.add.circle(0, -132, 92, accent, result.rarity === 'signature' ? 0.16 : 0.08).setStrokeStyle(result.rarity === 'signature' ? 8 : 5, accent, 0.95);
     const ring = this.add.circle(0, -132, 76, 0x2d2038, 1).setStrokeStyle(6, accent, 1);
     const art = this.add.image(0, -132, artKey).setDisplaySize(132, 132);
-    const title = this.add.text(0, -34, result.signature ? '★ 招牌配方触发 ★' : '随机熔铸完成', {
-      fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '23px', color: result.signature ? '#f6dfaa' : '#c9b8d6', fontStyle: 'bold',
+    const title = this.add.text(0, -34, result.rarity === 'signature' ? '★ 招牌配方触发 ★' : result.rarity === 'rare' ? '稀有共鸣结果' : '随机熔铸完成', {
+      fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '23px', color: result.rarity === 'signature' ? '#f6dfaa' : '#c9b8d6', fontStyle: 'bold',
     }).setOrigin(0.5);
     const name = this.add.text(0, 25, result.name, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '42px', color: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5);
     const meta = this.add.text(0, 76, `${cardTypeName(result.type)} · ${result.cost} 费 · 投入 ${getCard(result.sourceCardIds[0]!).name} + ${getCard(result.sourceCardIds[1]!).name}`, {
@@ -404,15 +423,15 @@ export class BattleScene extends Phaser.Scene {
     overlay.add([blocker, panel]);
 
     const button = createButton(this, 960, 755, 300, 72, '进入待部署槽', () => overlay.destroy(true), {
-      fill: result.signature ? COLORS.gold : COLORS.parchmentDark,
-      hoverFill: result.signature ? 0xffd775 : 0xdcc68f,
+      fill: result.rarity === 'signature' ? COLORS.gold : COLORS.parchmentDark,
+      hoverFill: result.rarity === 'signature' ? 0xffd775 : 0xdcc68f,
       fontSize: 24,
     });
     overlay.add(button);
     overlay.setAlpha(0);
     overlay.setScale(0.94);
     this.tweens.add({ targets: overlay, alpha: 1, scaleX: 1, scaleY: 1, duration: 260, ease: 'Back.out' });
-    if (result.signature) {
+    if (result.rarity === 'signature') {
       this.cameras.main.shake(180, 0.005);
       this.createBurst(960, 520, COLORS.gold);
     }
@@ -421,9 +440,29 @@ export class BattleScene extends Phaser.Scene {
     this.pendingLayer?.removeAll(true);
     const pending = this.simulation.getPendingFusion('player');
     if (!pending) return;
-    const box = this.add.rectangle(960, 833, 410, 44, 0x3f2c16, 0.98).setStrokeStyle(3, COLORS.gold, 1);
-    const text = this.add.text(960, 833, `待部署：${pending.name} · 点击战场释放`, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '18px', color: '#ffe6a4', fontStyle: 'bold' }).setOrigin(0.5);
-    this.pendingLayer?.add([box, text]);
+    const container = this.add.container(960, 833);
+    const box = this.add.rectangle(0, 0, 420, 46, 0x3f2c16, 0.98).setStrokeStyle(3, COLORS.gold, 1);
+    const text = this.add.text(0, 0, `拖到战场释放：${pending.name}`, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '18px', color: '#ffe6a4', fontStyle: 'bold' }).setOrigin(0.5);
+    container.add([box, text]);
+    box.setInteractive({ useHandCursor: true });
+    this.input.setDraggable(box);
+    box.on('dragstart', () => container.setDepth(40));
+    box.on('drag', (_pointer: Phaser.Input.Pointer, dragX: number, dragY: number) => container.setPosition(dragX, dragY));
+    box.on('dragend', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.y < ARENA.bottom && pointer.y > ARENA.top && pointer.x > ARENA.left && pointer.x < ARENA.right) {
+        const lane = this.simulation.getLaneForPosition(pointer.y);
+        if (this.simulation.deployPendingFusion('player', lane, pointer.x, pointer.y)) {
+          audioManager.playSfx('deploy');
+          this.pendingLayer?.removeAll(true);
+          this.refreshHandUi();
+          return;
+        }
+        this.showToast('融合卡无法部署到此处', true);
+      }
+      container.setPosition(960, 833);
+      container.setDepth(8);
+    });
+    this.pendingLayer?.add(container);
   }
 
   private renderSimulation(): void {
@@ -726,20 +765,87 @@ export class BattleScene extends Phaser.Scene {
     const result = this.simulation.getSnapshot().result;
     if (!result) return;
     const won = result.winner === 'player';
+    const playerKingAlive = this.simulation.towers.some((tower) => tower.side === 'player' && tower.lane === 'king' && tower.alive);
     audioManager.playSfx(won ? 'victory' : 'defeat');
+    let save = loadSave();
+    const mode = this.sceneData?.mode ?? 'campaign';
+    const nodeId = this.sceneData?.nodeId ?? 'l1_trial';
+    if (mode === 'campaign') save = completeJourneyNode(save, nodeId, { winner: result.winner, playerKingAlive, elapsedSeconds: this.simulation.getSnapshot().elapsed });
+    if (mode === 'tutorial') save = setTutorialState(save, true, 0);
     const overlay = this.add.container(0, 0).setDepth(100);
     const blocker = this.add.rectangle(960, 540, 1920, 1080, 0x08060c, 0.82).setInteractive();
-    const panel = createPanel(this, 960, 500, 650, 500, 1);
-    panel.add(this.add.text(0, -150, won ? '胜 利' : result.winner === 'draw' ? '平 局' : '失 败', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '58px', color: won ? '#f6dfaa' : '#e07d84', fontStyle: 'bold' }).setOrigin(0.5));
-    panel.add(this.add.text(0, -62, `皇冠 ${result.playerCrowns} : ${result.enemyCrowns}`, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '30px', color: '#ffffff' }).setOrigin(0.5));
-    panel.add(this.add.text(0, 10, result.reason === 'king-destroyed' ? '国王塔被摧毁' : result.reason === 'time' ? '时间结束' : '加时结束，比较剩余塔生命值', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '22px', color: '#bcaec6' }).setOrigin(0.5));
+    const panel = createPanel(this, 960, 500, 650, 470, 1);
+    panel.add(this.add.text(0, -135, won ? '胜 利' : result.winner === 'draw' ? '平 局' : '失 败', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '54px', color: won ? '#f6dfaa' : '#e07d84', fontStyle: 'bold' }).setOrigin(0.5));
+    panel.add(this.add.text(0, -55, `皇冠 ${result.playerCrowns} : ${result.enemyCrowns}`, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '28px', color: '#ffffff' }).setOrigin(0.5));
+    const stats = this.simulation.getStatistics();
+    panel.add(this.add.text(0, 25, `伤害 ${Math.round(stats.damage.player)} · 治疗 ${Math.round(stats.healing.player)} · 出牌 ${stats.cardsPlayed.player} · 熔铸 ${stats.fusions.player}`, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '20px', color: '#c9b8d6' }).setOrigin(0.5));
     overlay.add([blocker, panel]);
-    const button = createButton(this, 960, 650, 330, 76, won ? '领取胜利奖励' : '返回关卡选择', () => {
-      this.scene.start(won ? 'Reward' : 'StageSelect', won ? { stageId: this.stage.id, won: true } : undefined);
-    }, { fill: COLORS.gold, hoverFill: 0xffd775, fontSize: 26 });
+    const label = mode === 'tutorial' ? '完成教学' : mode === 'practice' ? '重赛' : won ? '查看结果' : '返回路线地图';
+    const button = createButton(this, 960, 620, 330, 72, label, () => {
+      if (mode === 'tutorial') this.scene.start('Menu');
+      else if (mode === 'practice') this.scene.restart(this.sceneData);
+      else this.scene.start('Reward', { nodeId, won });
+    }, { fill: COLORS.gold, hoverFill: 0xffd775, fontSize: 24 });
     button.setDepth(102);
+    if (mode === 'practice') createButton(this, 960, 720, 260, 56, '退出练习', () => this.scene.start('Menu'), { fontSize: 20 }).setDepth(102);
   }
 
+  private toggleSpeed(): void {
+    this.speedMultiplier = this.speedMultiplier === 1 ? 2 : 1;
+    const save = loadSave();
+    updateSettings(save, { preferredBattleSpeed: this.speedMultiplier as 1 | 2 });
+    this.showToast(`战斗速度：${this.speedMultiplier}×`);
+  }
+
+  private setupTutorial(): void {
+    this.children.getByName('tutorial-guide')?.destroy();
+    const titles = ['第一步：拖曳部署','第二步：等待并消耗圣水','第三步：认识塔与胜负','第四步：完成一次熔铸','第五步：出发吧'];
+    const bodies = ['把铁砧守卫拖到左侧高亮区域，松手即可部署。','拖出孢子小队。圣水会随时间自动恢复。','先破守卫塔，再打国王塔。加时结束会比较剩余塔生命。','点击炽焰瓶作主体、霜冻试剂作词缀，确认后把融合卡拖到木桩区域。','你已经掌握基础操作。真实路线每轮三战，失败会清空本轮祝福。'];
+    const overlay = this.add.container(0, 0).setName('tutorial-guide').setDepth(75);
+    const panel = createPanel(this, 960, 190, 900, 150, 0.98);
+    panel.add(this.add.text(-410, -44, titles[this.tutorialStep] ?? titles[4]!, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '24px', color: '#f6dfaa', fontStyle: 'bold' }).setOrigin(0, 0.5));
+    panel.add(this.add.text(-410, 4, bodies[this.tutorialStep] ?? bodies[4]!, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '19px', color: '#d8c9e5', wordWrap: { width: 710 } }).setOrigin(0, 0.5));
+    const skip = createButton(this, 410, -28, 120, 44, '跳过', () => { setTutorialState(loadSave(), true, 0); this.scene.start('Menu'); }, { fontSize: 18 });
+    const replay = createButton(this, 410, 28, 120, 44, '重播本步', () => this.scene.restart({ ...this.sceneData!, tutorialStep: this.tutorialStep }), { fontSize: 17 });
+    panel.add([skip, replay]);
+    overlay.add(panel);
+    if (this.tutorialStep === 2) createButton(this, 960, 300, 220, 56, '继续', () => { this.tutorialStep = 3; this.setupTutorial(); }, { fill: COLORS.gold, fontSize: 20 }).setDepth(76);
+    if (this.tutorialStep === 4) createButton(this, 960, 300, 220, 56, '完成教学', () => { setTutorialState(loadSave(), true, 0); this.scene.start('Menu'); }, { fill: COLORS.gold, fontSize: 20 }).setDepth(76);
+  }
+
+  private advanceTutorial(action: string): void {
+    if (!this.tutorialMode) return;
+    if (this.tutorialStep === 0 && action === 'anvil_guard') this.tutorialStep = 1;
+    else if (this.tutorialStep === 1 && action === 'spore_squad') this.tutorialStep = 2;
+    else if (this.tutorialStep === 3 && action === 'fusion') this.tutorialStep = 4;
+    else return;
+    this.setupTutorial();
+  }
+  private showModifierBanner(modifierId: import('../core/types').BattleModifierId): void {
+    const modifier = getModifier(modifierId);
+    this.paused = true;
+    const overlay = this.add.container(0, 0).setDepth(80);
+    overlay.add(this.add.rectangle(960, 540, 1920, 1080, 0x08060c, 0.82).setInteractive());
+    const panel = createPanel(this, 960, 520, 760, 330, 1);
+    panel.add(this.add.text(0, -82, '本节点特殊规则', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '23px', color: '#c9b8d6' }).setOrigin(0.5));
+    panel.add(this.add.text(0, -18, modifier.name, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '44px', color: '#f6dfaa', fontStyle: 'bold' }).setOrigin(0.5));
+    panel.add(this.add.text(0, 68, modifier.description, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '21px', color: '#d8c9e5', align: 'center', wordWrap: { width: 650 } }).setOrigin(0.5));
+    overlay.add(panel);
+    this.time.delayedCall(3000, () => { overlay.destroy(true); this.paused = false; });
+  }
+  private togglePause(force?: boolean): void {
+    if (this.resultShown) return;
+    this.paused = force ?? !this.paused;
+    if (!this.paused) return;
+    const overlay = this.add.container(0, 0).setDepth(90);
+    overlay.add(this.add.rectangle(960, 540, 1920, 1080, 0x08060c, 0.82).setInteractive());
+    const panel = createPanel(this, 960, 500, 620, 470, 1);
+    panel.add(this.add.text(0, -165, '战斗暂停', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '44px', color: '#f6dfaa', fontStyle: 'bold' }).setOrigin(0.5));
+    overlay.add(panel);
+    createButton(this, 960, 390, 320, 62, '继续战斗', () => { overlay.destroy(true); this.paused = false; }, { fill: COLORS.gold, fontSize: 23 }).setDepth(91);
+    createButton(this, 960, 468, 320, 62, '重新开始本节点', () => this.scene.restart(this.sceneData), { fontSize: 22 }).setDepth(91);
+    createButton(this, 960, 546, 320, 62, '放弃本局', () => this.confirmSurrender(), { fill: 0x784d58, hoverFill: 0x9f626d, textColor: '#ffffff', fontSize: 22 }).setDepth(91);
+  }
   private confirmSurrender(): void {
     const overlay = this.add.container(0, 0).setDepth(90);
     const blocker = this.add.rectangle(960, 540, 1920, 1080, 0x08060c, 0.75).setInteractive();
@@ -762,6 +868,21 @@ function outerRing(scene: Phaser.Scene, x: number, y: number): void {
   const ring = scene.add.circle(x, y, 20, 0xffffff, 0).setStrokeStyle(8, COLORS.gold, 1).setDepth(10);
   scene.tweens.add({ targets: ring, radius: 130, alpha: 0, duration: 600, onComplete: () => ring.destroy() });
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

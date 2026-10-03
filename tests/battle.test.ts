@@ -15,7 +15,7 @@ describe('BattleSimulation', () => {
 
   it('熔铸会消耗两张牌并生成唯一待部署结果', () => {
     const simulation = new BattleSimulation(getStage(1), INITIAL_DECK_IDS, undefined, { startingElixir: 10 });
-    const result = createFusionResult('anvil_guard', 'spark_archer', 'combat', () => 0.8, 0);
+    const result = createFusionResult('anvil_guard', 'spark_archer', null, () => 0.1);
     expect(simulation.fuseCards('player', [0, 1], result)).toBe(true);
     expect(simulation.getPendingFusion('player')?.id).toBe(result.id);
     expect(simulation.getHand('player')).toHaveLength(4);
@@ -43,7 +43,7 @@ describe('BattleSimulation', () => {
       const x = card.type === 'spell' ? 1500 : 760;
       const y = 310;
       expect(simulation.playHandCard('player', 0, 'top', x, y), `${card.name} 应可部署`).toBe(true);
-      if (card.type === 'catalyst') expect(simulation.getFusionBias('player')).toBe(card.catalyst?.direction);
+      if (card.type === 'catalyst') expect(simulation.getFusionCatalyst('player')).toBe(card.catalyst?.kind);
     }
   });
   it('常规时间平局后进入加时，并在结束时按塔血量判定', () => {
@@ -55,4 +55,22 @@ describe('BattleSimulation', () => {
   });
 });
 
+
+
+describe('练习与统计', () => {
+  it('无限圣水不会被出牌消耗，并记录出牌统计', () => {
+    const simulation = new BattleSimulation(getStage(1), INITIAL_DECK_IDS, undefined, { infiniteElixir: true });
+    expect(simulation.playHandCard('player', 0, 'top', 600, 310)).toBe(true);
+    simulation.update(0.1);
+    expect(simulation.getElixir('player')).toBe(10);
+    expect(simulation.getStatistics().cardsPlayed.player).toBe(1);
+  });
+
+  it('部署预览报告非法河道和圣水不足', () => {
+    const simulation = new BattleSimulation(getStage(1), INITIAL_DECK_IDS);
+    const card = getCard('anvil_guard');
+    expect(simulation.getDeploymentPreview('player', card, 'top', 960, 310).valid).toBe(false);
+    expect(simulation.getDeploymentPreview('player', card, 'top', 700, 310).valid).toBe(true);
+  });
+});
 

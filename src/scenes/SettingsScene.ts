@@ -8,6 +8,7 @@ export class SettingsScene extends Phaser.Scene {
   private save = loadSave();
   private musicText?: Phaser.GameObjects.Text;
   private sfxText?: Phaser.GameObjects.Text;
+  private speedText?: Phaser.GameObjects.Text;
 
   constructor() { super('Settings'); }
 
@@ -26,7 +27,11 @@ export class SettingsScene extends Phaser.Scene {
     this.sfxText = this.add.text(880, 465, `${Math.round(this.save.settings.sfxVolume * 100)}%`, { fontFamily: 'monospace', fontSize: '28px', color: '#ffffff' }).setOrigin(0.5);
     createButton(this, 980, 465, 72, 58, '＋', () => this.changeSfx(0.1), { fontSize: 32 });
 
-    this.add.text(960, 610, '首次点击开始后会播放原创合成芯片音乐。', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '20px', color: '#9d91a5' }).setOrigin(0.5);
+    this.add.text(650, 575, '默认战斗速度', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '28px', color: '#e5d8c4' }).setOrigin(0.5);
+    createButton(this, 800, 575, 72, 58, '1×', () => this.changeSpeed(1), { fontSize: 26 });
+    createButton(this, 980, 575, 72, 58, '2×', () => this.changeSpeed(2), { fontSize: 26 });
+    this.speedText = this.add.text(890, 625, `当前：${this.save.settings.preferredBattleSpeed}×`, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '18px', color: '#a99db1' }).setOrigin(0.5);
+    this.add.text(960, 700, '首次点击开始后会播放原创合成芯片音乐。', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '20px', color: '#9d91a5' }).setOrigin(0.5);
     createButton(this, 960, 815, 360, 76, '返回主菜单', () => this.scene.start('Menu'), { fill: COLORS.gold, hoverFill: 0xffd775, fontSize: 28 });
   }
 
@@ -36,6 +41,12 @@ export class SettingsScene extends Phaser.Scene {
     audioManager.setVolumes(this.save.settings.musicVolume, this.save.settings.sfxVolume);
     if (volume > 0) audioManager.startMusic();
     this.musicText?.setText(`${Math.round(volume * 100)}%`);
+  }
+
+  private changeSpeed(speed: 1 | 2): void {
+    this.save = updateSettings(this.save, { preferredBattleSpeed: speed });
+    this.speedText?.setText(`当前：${speed}×`);
+    audioManager.playSfx('click');
   }
 
   private changeSfx(delta: number): void {

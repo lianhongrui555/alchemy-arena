@@ -1,12 +1,12 @@
 import Phaser from 'phaser';
 import { COLORS } from '../core/constants';
 import { CARDS } from '../data/cards';
-import { loadSave, updateDeck } from '../core/save';
+import { loadSave, setActiveDeckPreset, updateDeck } from '../core/save';
 import { createButton, createCardView, createTopBar } from '../ui/components';
-import type { SaveV1 } from '../core/types';
+import type { DeckPresetId, SaveV2 } from '../core/types';
 
 export class DeckScene extends Phaser.Scene {
-  private save: SaveV1 = loadSave();
+  private save: SaveV2 = loadSave();
   private deck: string[] = [];
   private preservedDeck: string[] | null = null;
   private deckLayer?: Phaser.GameObjects.Container;
@@ -20,10 +20,13 @@ export class DeckScene extends Phaser.Scene {
 
   create(): void {
     this.save = loadSave();
-    this.deck = this.preservedDeck ? [...this.preservedDeck] : [...this.save.deckCardIds];
+    this.deck = this.preservedDeck ? [...this.preservedDeck] : [...this.save.deckPresets[String(this.save.activeDeckPreset) as '1' | '2' | '3']];
     this.preservedDeck = null;
     this.cameras.main.setBackgroundColor('#15111c');
-    createTopBar(this, '牌组编辑', `已解锁 ${this.save.unlockedCardIds.length}/14 张`);
+    createTopBar(this, '牌组编辑', `牌组 ${this.save.activeDeckPreset} · 已解锁 ${this.save.unlockedCardIds.length}/14 张`);
+    for (const preset of [1, 2, 3] as DeckPresetId[]) {
+      createButton(this, 760 + (preset - 1) * 130, 145, 118, 48, '牌组 ' + preset, () => { this.save = setActiveDeckPreset(loadSave(), preset); this.scene.restart(); }, { fill: preset === this.save.activeDeckPreset ? COLORS.gold : COLORS.parchmentDark, fontSize: 19 });
+    }
     this.deckLayer = this.add.container(0, 0);
     this.renderDeckSlots();
     this.renderCollection();
@@ -85,10 +88,13 @@ export class DeckScene extends Phaser.Scene {
       return;
     }
     try {
-      this.save = updateDeck(this.save, this.deck);
+      this.save = updateDeck(this.save, this.deck, this.save.activeDeckPreset);
       this.feedback?.setText('牌组已保存。').setColor('#81d69b');
     } catch (error) {
       this.feedback?.setText(error instanceof Error ? error.message : '保存失败').setColor('#ff9a8a');
     }
   }
 }
+
+
+

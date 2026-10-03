@@ -2,10 +2,27 @@ export type Side = 'player' | 'enemy';
 export type Lane = 'top' | 'bottom';
 export type CardType = 'unit' | 'building' | 'spell' | 'trap' | 'catalyst';
 export type BattleCardType = Exclude<CardType, 'catalyst'>;
-export type FusionDirection = 'combat' | 'mystic';
 export type TargetMode = 'none' | 'ground' | 'area' | 'lane';
 export type MovementMode = 'ground' | 'air';
 export type TargetMask = 'ground' | 'air' | 'both';
+
+export type FusionTrait =
+  | 'armor' | 'spark' | 'spore' | 'gale' | 'steam'
+  | 'blast' | 'life' | 'frost' | 'corrosion' | 'detonation';
+export type FusionRarity = 'common' | 'rare' | 'signature';
+export type CatalystKind = 'order' | 'chaos';
+
+export type BattleMode = 'campaign' | 'practice' | 'tutorial';
+export type DeckPresetId = 1 | 2 | 3;
+export type JourneyLayer = 1 | 2 | 3;
+export type NodeId = 'l1_trial' | 'l1_greenhouse' | 'l2_silver' | 'l2_frost' | 'l3_crown';
+export type BattleThemeId = 'trial' | 'spore' | 'silver' | 'frost' | 'crown';
+export type BattleModifierId =
+  | 'bridge-rotation' | 'lava-pulse' | 'frost-current'
+  | 'elixir-tide' | 'spore-cloud' | 'reinforcement';
+export type BlessingId =
+  | 'fusion-discount' | 'signature-chance' | 'elixir-regen'
+  | 'unit-power' | 'tower-health' | 'starting-elixir';
 
 export interface EffectSpec {
   kind: 'damage' | 'heal' | 'slow' | 'dot' | 'speed';
@@ -21,6 +38,7 @@ export interface UnitStats {
   attackInterval: number;
   speed: number;
   radius: number;
+  damageReduction?: number;
   movement: MovementMode;
   targets: TargetMask;
   attackEffects?: EffectSpec[];
@@ -48,12 +66,14 @@ export interface TrapSpec {
 }
 
 export interface CatalystSpec {
-  direction: FusionDirection;
+  kind: CatalystKind;
 }
 
 export interface CardDefinition {
   id: string;
   name: string;
+  fusionNoun?: string;
+  fusionTrait?: FusionTrait;
   type: CardType;
   tags: string[];
   cost: number;
@@ -78,10 +98,14 @@ export interface FusionResult {
   targeting: TargetMode;
   artKey: string;
   effectId: string;
+  mechanicId: string;
   description: string;
-  direction: FusionDirection;
+  rarity: FusionRarity;
+  bodyCardId: string;
+  traitCardId: string;
+  trait: FusionTrait;
   sourceCardIds: [string, string];
-  signature: boolean;
+  signatureRecipeId?: string;
   stats?: UnitStats;
   spell?: SpellSpec;
   trap?: TrapSpec;
@@ -102,6 +126,38 @@ export interface StageConfig {
   usesCatalysts: boolean;
   usesTraps: boolean;
   difficultyLabel: string;
+  themeId: BattleThemeId;
+}
+
+export interface StageNodeDefinition {
+  id: NodeId;
+  layer: JourneyLayer;
+  name: string;
+  subtitle: string;
+  aiStageId: number;
+  themeId: BattleThemeId;
+  deck: string[];
+  boss: boolean;
+  starGoals: readonly string[];
+}
+
+export interface PracticeSettings {
+  deckIds: string[];
+  opponent: 'off' | 1 | 2 | 3;
+  infiniteElixir: boolean;
+  timerEnabled: boolean;
+}
+
+export interface ActiveJourney {
+  status: 'idle' | 'active' | 'reward' | 'complete';
+  currentNodeId: NodeId;
+  route: NodeId[];
+  nodeModifiers: Partial<Record<NodeId, BattleModifierId>>;
+  blessings: Partial<Record<BlessingId, 1 | 2>>;
+  lockedDeckIds: string[];
+  pendingCardChoices?: string[];
+  pendingNextNodes?: NodeId[];
+  pendingBlessingChoices?: BlessingId[];
 }
 
 export interface SaveV1 {
@@ -109,9 +165,25 @@ export interface SaveV1 {
   unlockedCardIds: string[];
   deckCardIds: string[];
   clearedStageIds: number[];
+  settings: { musicVolume: number; sfxVolume: number };
+}
+
+export interface SaveV2 {
+  version: 2;
+  unlockedCardIds: string[];
+  deckPresets: Record<'1' | '2' | '3', string[]>;
+  activeDeckPreset: DeckPresetId;
+  practice: PracticeSettings;
+  nodeStars: Partial<Record<NodeId, 0 | 1 | 2 | 3>>;
+  firstClearedNodeIds: NodeId[];
+  unlockedJourneyLayers: JourneyLayer[];
+  activeJourney: ActiveJourney | null;
+  tutorialCompleted: boolean;
+  tutorialStep: number;
   settings: {
     musicVolume: number;
     sfxVolume: number;
+    preferredBattleSpeed: 1 | 2;
   };
 }
 
@@ -146,6 +218,7 @@ export interface UnitState {
   attackCooldown: number;
   speed: number;
   radius: number;
+  damageReduction?: number;
   movement: MovementMode;
   targets: TargetMask;
   attackEffects: EffectSpec[];
@@ -194,7 +267,8 @@ export interface BattleEvent {
     | 'unit-died'
     | 'tower-damaged'
     | 'tower-destroyed'
-    | 'battle-ended';
+    | 'battle-ended'
+    | 'modifier';
   side?: Side;
   x?: number;
   y?: number;
@@ -202,6 +276,7 @@ export interface BattleEvent {
   targetY?: number;
   unitId?: number;
   cardId?: string;
+  amount?: number;
   text?: string;
 }
 
@@ -215,6 +290,7 @@ export interface BattleSnapshot {
   units: UnitState[];
   traps: TrapState[];
   result: BattleResult | null;
+  modifierId?: BattleModifierId;
 }
 
 export interface BattleResult {
@@ -223,3 +299,32 @@ export interface BattleResult {
   playerCrowns: number;
   enemyCrowns: number;
 }
+
+export interface BattleStatistics {
+  damage: Record<Side, number>;
+  healing: Record<Side, number>;
+  elixirSpent: Record<Side, number>;
+  cardsPlayed: Record<Side, number>;
+  fusions: Record<Side, number>;
+  towersDestroyed: Record<Side, number>;
+  byCard: Record<string, { played: number; damage: number; healing: number }>;
+}
+
+export interface DeploymentPreview {
+  valid: boolean;
+  reason?: 'outside-zone' | 'river' | 'not-enough-elixir' | 'fusion-pending' | 'paused';
+  bounds: { left: number; right: number; top: number; bottom: number };
+}
+
+export interface BattleSceneData {
+  mode: BattleMode;
+  stageId: number;
+  nodeId?: NodeId;
+  deckIds: string[];
+  practice?: PracticeSettings;
+  modifierId?: BattleModifierId;
+  blessings?: Partial<Record<BlessingId, 1 | 2>>;
+  tutorialStep?: number;
+}
+
+

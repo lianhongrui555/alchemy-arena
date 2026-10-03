@@ -1,12 +1,19 @@
 import Phaser from 'phaser';
 import { audioManager } from '../audio/AudioManager';
 import { COLORS, GAME_HEIGHT, GAME_WIDTH } from '../core/constants';
+import { loadSave } from '../core/save';
+import { getJourneyNode } from '../data/levels';
 import { createButton, createPanel } from '../ui/components';
 
 export class MenuScene extends Phaser.Scene {
   constructor() { super('Menu'); }
 
   create(): void {
+    const save = loadSave();
+    if (!save.tutorialCompleted) {
+      this.scene.start('Battle', { mode: 'tutorial', stageId: 1, deckIds: ['anvil_guard', 'spore_squad', 'flame_flask', 'frost_reagent', 'alchemy_cannon', 'spark_archer', 'wind_griffin', 'order_crystal'], tutorialStep: save.tutorialStep });
+      return;
+    }
     this.cameras.main.setBackgroundColor('#16111d');
     this.drawBackdrop();
     const panel = createPanel(this, GAME_WIDTH / 2, 535, 680, 760, 0.9);
@@ -18,9 +25,14 @@ export class MenuScene extends Phaser.Scene {
       fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '26px', color: '#c9b8d6',
     }).setOrigin(0.5).setDepth(3);
 
-    createButton(this, 960, 475, 420, 84, '开始竞技旅程', () => this.scene.start('StageSelect'), { fill: COLORS.gold, hoverFill: 0xffd775, fontSize: 34 }).setDepth(4);
-    createButton(this, 960, 585, 420, 74, '编辑牌组', () => this.scene.start('Deck'), { fontSize: 30 }).setDepth(4);
-    createButton(this, 960, 685, 420, 74, '设置', () => this.scene.start('Settings'), { fontSize: 30 }).setDepth(4);
+    const journey = save.activeJourney;
+    const hasRun = Boolean(journey && journey.status !== 'complete');
+    const primaryLabel = hasRun ? `继续路线：${getJourneyNode(journey!.currentNodeId).name}` : '开始熔炉远征';
+    createButton(this, 960, 455, 460, 78, primaryLabel, () => this.scene.start('StageSelect'), { fill: COLORS.gold, hoverFill: 0xffd775, fontSize: 28 }).setDepth(4);
+    createButton(this, 730, 565, 215, 68, '自由练习', () => this.scene.start('Practice'), { fontSize: 23 }).setDepth(4);
+    createButton(this, 960, 565, 215, 68, '编辑牌组', () => this.scene.start('Deck'), { fontSize: 23 }).setDepth(4);
+    createButton(this, 1190, 565, 215, 68, '新手熔炉', () => this.scene.start('Battle', { mode: 'tutorial', stageId: 1, deckIds: ['anvil_guard', 'spore_squad', 'flame_flask', 'frost_reagent', 'alchemy_cannon', 'spark_archer', 'wind_griffin', 'order_crystal'], tutorialStep: 0 }), { fontSize: 23 }).setDepth(4);
+    createButton(this, 960, 665, 460, 66, '设置', () => this.scene.start('Settings'), { fontSize: 25 }).setDepth(4);
 
     this.add.text(960, 1024, '桌面浏览器体验 · 原创程序音效 · 临时像素占位素材', {
       fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '18px', color: '#756b7f',
@@ -40,3 +52,4 @@ export class MenuScene extends Phaser.Scene {
     this.add.circle(960, 535, 390, 0x000000, 0.18).setStrokeStyle(5, COLORS.parchmentDark, 0.34);
   }
 }
+

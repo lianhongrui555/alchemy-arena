@@ -9,7 +9,11 @@ import type {
   BattleSnapshot,
   CardDefinition,
   EffectSpec,
-  FusionDirection,
+  CatalystKind,
+  BattleModifierId,
+  BattleStatistics,
+  BlessingId,
+  DeploymentPreview,
   FusionResult,
   Lane,
   PlayableCard,
@@ -35,6 +39,11 @@ export interface BattleSimulationOptions {
   playerElixirMultiplier?: number;
   enemyElixirMultiplier?: number;
   enemyStatMultiplier?: number;
+  timerEnabled?: boolean;
+  infiniteElixir?: boolean;
+  modifierId?: BattleModifierId;
+  blessings?: Partial<Record<BlessingId, 1 | 2>>;
+  bossShield?: boolean;
 }
 
 export class BattleSimulation {
@@ -45,7 +54,7 @@ export class BattleSimulation {
   readonly playerDeck: DeckSystem;
   readonly enemyDeck: DeckSystem;
   readonly stage: StageConfig;
-  readonly options: Required<BattleSimulationOptions>;
+  readonly options: Required<Omit<BattleSimulationOptions, 'modifierId' | 'blessings' | 'bossShield'>> & Pick<BattleSimulationOptions, 'modifierId' | 'blessings' | 'bossShield'>;
 
   private elixir: Record<Side, number> = { player: 5, enemy: 5 };
   private nextEntityId = 1;
@@ -54,7 +63,13 @@ export class BattleSimulation {
   private overtime = false;
   private crowns: Record<Side, number> = { player: 0, enemy: 0 };
   private pendingFusion: Record<Side, FusionResult | null> = { player: null, enemy: null };
-  private fusionBias: Record<Side, FusionDirection | null> = { player: null, enemy: null };
+  private fusionCatalyst: Record<Side, CatalystKind | null> = { player: null, enemy: null };
+  private readonly statistics: BattleStatistics = createStatistics();
+  private readonly infiniteElixir: Record<Side, boolean> = { player: false, enemy: false };
+  private activeModifier?: BattleModifierId;
+  private modifierTimer = 0;
+  private closedLane: Lane | null = null;
+  private modifierWarning = '';
 
   constructor(
     stage: StageConfig,
@@ -70,11 +85,22 @@ export class BattleSimulation {
       playerElixirMultiplier: options.playerElixirMultiplier ?? 1,
       enemyElixirMultiplier: options.enemyElixirMultiplier ?? stage.elixirMultiplier,
       enemyStatMultiplier: options.enemyStatMultiplier ?? stage.statMultiplier,
+      timerEnabled: options.timerEnabled ?? true,
+      infiniteElixir: options.infiniteElixir ?? false,
+      modifierId: options.modifierId,
+      blessings: options.blessings,
+      bossShield: options.bossShield,
     };
-    this.elixir = { player: this.options.startingElixir, enemy: this.options.startingElixir };
+    this.activeModifier = options.modifierId;
+    this.infiniteElixir.player = options.infiniteElixir ?? false;
+    const startingBonus = 2 * (options.blessings?.['starting-elixir'] ?? 0);
+    this.elixir = { player: Math.min(BATTLE_RULES.maxElixir, this.options.startingElixir + startingBonus), enemy: this.options.startingElixir };
     this.playerDeck = new DeckSystem(playerDeckIds, BATTLE_RULES.handSize);
     this.enemyDeck = new DeckSystem(enemyDeckIds, BATTLE_RULES.handSize);
-    this.towers = createTowers();
+    const towerMultiplier = 1 + 0.08 * (options.blessings?.['tower-health'] ?? 0);
+    this.towers = createTowers().map((tower) => tower.side === 'player' && towerMultiplier > 1
+      ? { ...tower, maxHp: Math.round(tower.maxHp * towerMultiplier), hp: Math.round(tower.maxHp * towerMultiplier) }
+      : tower);
   }
 
   update(rawDeltaSeconds: number): void {
@@ -83,6 +109,7 @@ export class BattleSimulation {
     this.elapsedSeconds += delta;
     this.updateClock();
     if (this.result) return;
+    this.updateModifiers(delta);
     this.updateElixir(delta);
     this.updateStatuses(delta);
     this.updateTraps(delta);
@@ -102,6 +129,7 @@ export class BattleSimulation {
       units: this.units.map((unit) => ({ ...unit, statuses: unit.statuses.map((status) => ({ ...status })) })),
       traps: this.traps.map((trap) => ({ ...trap })),
       result: this.result ? { ...this.result } : null,
+      modifierId: this.activeModifier,
     };
   }
 
@@ -109,8 +137,54 @@ export class BattleSimulation {
   getHand(side: Side): string[] { return (side === 'player' ? this.playerDeck : this.enemyDeck).copyHand(); }
   getNextCard(side: Side): string { return (side === 'player' ? this.playerDeck : this.enemyDeck).peekNext(); }
   getPendingFusion(side: Side): FusionResult | null { return this.pendingFusion[side] ? { ...this.pendingFusion[side] } : null; }
-  getFusionBias(side: Side): FusionDirection | null { return this.fusionBias[side]; }
-  canAfford(side: Side, cost: number): boolean { return this.elixir[side] + 0.0001 >= cost; }
+  getFusionCatalyst(side: Side): CatalystKind | null { return this.fusionCatalyst[side]; }
+
+  getStatistics(): BattleStatistics {
+    return {
+      damage: { ...this.statistics.damage },
+      healing: { ...this.statistics.healing },
+      elixirSpent: { ...this.statistics.elixirSpent },
+      cardsPlayed: { ...this.statistics.cardsPlayed },
+      fusions: { ...this.statistics.fusions },
+      towersDestroyed: { ...this.statistics.towersDestroyed },
+      byCard: Object.fromEntries(Object.entries(this.statistics.byCard).map(([id, value]) => [id, { ...value }])),
+    };
+  }
+
+  setInfiniteElixir(side: Side, enabled: boolean): void {
+    this.infiniteElixir[side] = enabled;
+    if (enabled) this.elixir[side] = BATTLE_RULES.maxElixir;
+  }
+
+  clearBattlefield(): void {
+    for (const unit of this.units) unit.alive = false;
+    for (const trap of this.traps) trap.alive = false;
+    this.units.length = 0;
+    this.traps.length = 0;
+    this.events.push({ type: 'modifier', text: '战场已清空' });
+  }
+
+  canDeployAt(side: Side, card: PlayableCard, lane: Lane, x: number, y: number): boolean {
+    return this.getDeploymentPreview(side, card, lane, x, y).valid;
+  }
+
+  getDeploymentPreview(side: Side, card: PlayableCard, lane: Lane, x: number, y: number): DeploymentPreview {
+    const bounds = this.getDeployBounds(side, lane);
+    const insideArena = x >= ARENA.left && x <= ARENA.right && y >= ARENA.top && y <= ARENA.bottom;
+    if (!insideArena || x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) return { valid: false, reason: 'outside-zone', bounds };
+    if (!this.canAfford(side, card.cost)) return { valid: false, reason: 'not-enough-elixir', bounds };
+    if (this.pendingFusion[side]) return { valid: false, reason: 'fusion-pending', bounds };
+    if (card.type === 'spell') return { valid: true, bounds };
+    if ((card.type === 'building' || card.type === 'trap') && this.inRiver(x)) return { valid: false, reason: 'river', bounds };
+    const movement = 'stats' in card ? card.stats?.movement ?? 'ground' : 'ground';
+    if (movement === 'ground' && this.inRiver(x)) return { valid: false, reason: 'river', bounds };
+    return { valid: true, bounds };
+  }
+
+  getModifierState(): { id?: BattleModifierId; closedLane: Lane | null; warning: string } {
+    return { id: this.activeModifier, closedLane: this.closedLane, warning: this.modifierWarning };
+  }
+  canAfford(side: Side, cost: number): boolean { return this.infiniteElixir[side] || this.elixir[side] + 0.0001 >= cost; }
 
   playHandCard(side: Side, handIndex: number, lane: Lane, x: number, y: number): boolean {
     const deck = side === 'player' ? this.playerDeck : this.enemyDeck;
@@ -123,6 +197,9 @@ export class BattleSimulation {
     if (this.pendingFusion[side]) return false;
     deck.play(handIndex);
     this.elixir[side] -= card.cost;
+    this.statistics.elixirSpent[side] += card.cost;
+    this.statistics.cardsPlayed[side] += 1;
+    this.getCardStat(card.id).played += 1;
     this.deployCard(side, card, lane, x, y);
     return true;
   }
@@ -135,8 +212,11 @@ export class BattleSimulation {
     if (card.type !== 'catalyst' || !card.catalyst || !this.canAfford(side, card.cost)) return false;
     deck.play(handIndex);
     this.elixir[side] -= card.cost;
-    this.fusionBias[side] = card.catalyst.direction;
-    this.emit({ type: 'spell', side, cardId, text: `${card.name}：下一次熔铸方向已锁定` });
+    this.statistics.elixirSpent[side] += card.cost;
+    this.statistics.cardsPlayed[side] += 1;
+    this.getCardStat(card.id).played += 1;
+    this.fusionCatalyst[side] = card.catalyst.kind;
+    this.emit({ type: 'spell', side, cardId, text: `${card.name}：下一次熔铸稀有度已修正` });
     return true;
   }
 
@@ -147,8 +227,10 @@ export class BattleSimulation {
     if (cards.some((id) => !id) || !this.canAfford(side, result.cost)) return false;
     deck.consume(handIndices);
     this.elixir[side] -= result.cost;
+    this.statistics.elixirSpent[side] += result.cost;
+    this.statistics.fusions[side] += 1;
     this.pendingFusion[side] = result;
-    this.fusionBias[side] = null;
+    this.fusionCatalyst[side] = null;
     this.emit({ type: 'spell', side, cardId: result.id, text: `熔铸完成：${result.name}` });
     return true;
   }
@@ -157,6 +239,8 @@ export class BattleSimulation {
     const result = this.pendingFusion[side];
     if (!result || !this.isValidDeployment(side, result, lane, x, y)) return false;
     this.pendingFusion[side] = null;
+    this.statistics.cardsPlayed[side] += 1;
+    this.getCardStat(result.id).played += 1;
     this.deployCard(side, result, lane, x, y);
     return true;
   }
@@ -177,6 +261,7 @@ export class BattleSimulation {
   getLaneForPosition(y: number): Lane { return y < (ARENA.topLaneY + ARENA.bottomLaneY) / 2 ? 'top' : 'bottom'; }
 
   private updateClock(): void {
+    if (!this.options.timerEnabled) return;
     if (!this.overtime && this.elapsedSeconds >= this.options.regularSeconds) {
       if (this.crowns.player === this.crowns.enemy) {
         this.overtime = true;
@@ -194,10 +279,50 @@ export class BattleSimulation {
     }
   }
 
+  private updateModifiers(delta: number): void {
+    if (!this.activeModifier) return;
+    this.modifierTimer += delta;
+    if (this.activeModifier === 'bridge-rotation') {
+      const phase = Math.floor(this.modifierTimer / 12) % 2;
+      const nextClosed = phase === 1 ? 'top' : null;
+      if (this.closedLane !== nextClosed) {
+        this.closedLane = nextClosed;
+        this.modifierWarning = nextClosed ? '上方桥梁暂时关闭' : '桥梁重新开放';
+        this.emit({ type: 'modifier', text: this.modifierWarning });
+      }
+    } else if (this.activeModifier === 'lava-pulse') {
+      const phase = this.modifierTimer % 20;
+      if (phase >= 16 && phase < 17.2) {
+        for (const unit of this.units) {
+          if (!unit.alive || unit.movement !== 'ground' || !this.onBridge(unit.x, unit.y)) continue;
+          this.damageUnit(unit, 42 * delta, unit.owner === 'player' ? 'enemy' : 'player');
+        }
+      }
+    } else if (this.activeModifier === 'frost-current') {
+      for (const unit of this.units) {
+        if (!unit.alive || unit.movement !== 'ground' || !this.onBridge(unit.x, unit.y)) continue;
+        upsertStatus(unit, { kind: 'slow', value: 0.35, remaining: 0.4, sourceId: -1 });
+      }
+    } else if (this.activeModifier === 'spore-cloud') {
+      if (Math.floor(this.modifierTimer) % 3 === 0) {
+        for (const unit of this.units) {
+          if (!unit.alive || unit.movement !== 'ground' || !this.onBridge(unit.x, unit.y)) continue;
+          const amount = Math.min(unit.maxHp - unit.hp, 18);
+          unit.hp += amount;
+          this.statistics.healing[unit.owner] += amount;
+        }
+      }
+    }
+  }
+
   private updateElixir(delta: number): void {
+    if (this.infiniteElixir.player) this.elixir.player = BATTLE_RULES.maxElixir;
+    if (this.infiniteElixir.enemy) this.elixir.enemy = BATTLE_RULES.maxElixir;
     const overtimeMultiplier = this.overtime ? 2 : 1;
-    this.elixir.player = Math.min(BATTLE_RULES.maxElixir, this.elixir.player + (delta / BATTLE_RULES.elixirInterval) * overtimeMultiplier * this.options.playerElixirMultiplier);
-    this.elixir.enemy = Math.min(BATTLE_RULES.maxElixir, this.elixir.enemy + (delta / BATTLE_RULES.elixirInterval) * overtimeMultiplier * this.options.enemyElixirMultiplier);
+    const tideMultiplier = this.activeModifier === 'elixir-tide' && Math.floor(this.modifierTimer / 15) % 2 === 1 ? 1.4 : 1;
+    const playerBlessing = 1 + 0.12 * (this.options.blessings?.['elixir-regen'] ?? 0);
+    this.elixir.player = Math.min(BATTLE_RULES.maxElixir, this.elixir.player + (delta / BATTLE_RULES.elixirInterval) * overtimeMultiplier * tideMultiplier * this.options.playerElixirMultiplier * playerBlessing);
+    this.elixir.enemy = Math.min(BATTLE_RULES.maxElixir, this.elixir.enemy + (delta / BATTLE_RULES.elixirInterval) * overtimeMultiplier * tideMultiplier * this.options.enemyElixirMultiplier);
   }
 
   private updateStatuses(delta: number): void {
@@ -208,7 +333,7 @@ export class BattleSimulation {
         status.remaining -= delta;
         if (status.kind === 'dot') dotDamage += status.value * delta;
       }
-      if (dotDamage > 0) unit.hp -= dotDamage;
+      if (dotDamage > 0) this.damageUnit(unit, dotDamage, unit.owner === 'player' ? 'enemy' : 'player');
       unit.statuses = unit.statuses.filter((status) => status.remaining > 0);
       if (unit.hp <= 0) this.killUnit(unit);
     }
@@ -262,7 +387,7 @@ export class BattleSimulation {
         .sort((a, b) => a.dist - b.dist)[0]?.unit;
       if (!target || tower.attackCooldown > 0) continue;
       tower.attackCooldown = tower.attackInterval;
-      this.damageUnit(target, tower.damage);
+      this.damageUnit(target, tower.damage, tower.side);
       this.emit({ type: 'attack', side: tower.side, x: tower.x, y: tower.y, targetX: target.x, targetY: target.y });
     }
   }
@@ -273,7 +398,7 @@ export class BattleSimulation {
     if (target.kind === 'unit') {
       const targetUnit = this.units.find((item) => item.id === Number(target.id));
       if (!targetUnit?.alive) return;
-      this.damageUnit(targetUnit, damage);
+      this.damageUnit(targetUnit, damage, unit.owner);
       for (const effect of unit.attackEffects) this.applyEffectToUnit(effect, targetUnit, unit.owner);
       if (unit.splashRadius > 0) this.applySplashDamage(unit.owner, targetUnit.x, targetUnit.y, damage, unit.splashRadius, targetUnit.id);
     } else {
@@ -289,6 +414,19 @@ export class BattleSimulation {
     let destinationY = target.y;
     if (unit.movement === 'ground') {
       const bridgeY = unit.lane === 'top' ? ARENA.topLaneY : ARENA.bottomLaneY;
+      const ownSideBeforeBridge = unit.owner === 'player' ? unit.x < ARENA.riverLeft - unit.radius : unit.x > ARENA.riverRight + unit.radius;
+      if (this.closedLane === unit.lane && ownSideBeforeBridge) {
+        const waitX = unit.owner === 'player' ? ARENA.riverLeft - unit.radius - 4 : ARENA.riverRight + unit.radius + 4;
+        const wx = waitX - unit.x;
+        const wy = bridgeY - unit.y;
+        const wl = Math.hypot(wx, wy);
+        if (wl > 0.5) {
+          const ws = Math.min(wl, unit.speed * this.getSpeedMultiplier(unit) * delta);
+          unit.x += wx / wl * ws;
+          unit.y += wy / wl * ws;
+        }
+        return;
+      }
       if (unit.owner === 'player') {
         if (unit.x < ARENA.riverLeft - unit.radius) destinationX = ARENA.riverLeft + unit.radius;
         else if (unit.x < ARENA.riverRight + unit.radius) destinationX = ARENA.riverRight + unit.radius;
@@ -350,7 +488,7 @@ export class BattleSimulation {
       .filter(({ candidate, dist }) => dist <= (unit.healRadius ?? unit.range) + candidate.radius)
       .sort((a, b) => a.candidate.hp / a.candidate.maxHp - b.candidate.hp / b.candidate.maxHp);
     const target = candidates[0]?.candidate;
-    if (target) target.hp = Math.min(target.maxHp, target.hp + (unit.healPerSecond ?? 0));
+    if (target) { const amount = Math.min(target.maxHp - target.hp, unit.healPerSecond ?? 0); target.hp += amount; this.statistics.healing[unit.owner] += amount; this.getCardStat(unit.cardId).healing += amount; }
   }
 
   private deployCard(side: Side, card: PlayableCard, lane: Lane, x: number, y: number): void {
@@ -381,7 +519,7 @@ export class BattleSimulation {
   private createUnit(side: Side, cardId: string, name: string, lane: Lane, x: number, y: number, stats: NonNullable<CardDefinition['stats']>, multiplier: number): UnitState {
     return {
       id: this.nextEntityId++, owner: side, cardId, name, lane, x, y,
-      maxHp: Math.round(stats.maxHp * multiplier), hp: Math.round(stats.maxHp * multiplier), damage: stats.damage * multiplier,
+      maxHp: Math.round(stats.maxHp * multiplier), hp: Math.round(stats.maxHp * multiplier), damage: stats.damage * multiplier, damageReduction: stats.damageReduction ?? 0,
       range: stats.range, attackInterval: stats.attackInterval, attackCooldown: Math.random() * stats.attackInterval * 0.35,
       speed: stats.speed, radius: stats.radius, movement: stats.movement, targets: stats.targets,
       attackEffects: (stats.attackEffects ?? []).map((effect) => ({ ...effect, value: effect.kind === 'damage' ? effect.value * multiplier : effect.value })),
@@ -419,8 +557,8 @@ export class BattleSimulation {
 
   private applyEffectToUnit(effect: EffectSpec, unit: UnitState, sourceSide: Side): void {
     if (!unit.alive) return;
-    if (effect.kind === 'damage') this.damageUnit(unit, effect.value);
-    else if (effect.kind === 'heal') unit.hp = Math.min(unit.maxHp, unit.hp + effect.value);
+    if (effect.kind === 'damage') this.damageUnit(unit, effect.value, sourceSide);
+    else if (effect.kind === 'heal') { const amount = Math.min(unit.maxHp - unit.hp, effect.value); unit.hp += amount; this.statistics.healing[sourceSide] += amount; this.getCardStat(unit.cardId).healing += amount; }
     else if (effect.kind === 'slow') upsertStatus(unit, { kind: 'slow', value: effect.value, remaining: effect.duration ?? 3, sourceId: -1 });
     else if (effect.kind === 'speed') upsertStatus(unit, { kind: 'speed', value: effect.value, remaining: effect.duration ?? 3, sourceId: -1 });
     else if (effect.kind === 'dot') upsertStatus(unit, { kind: 'dot', value: effect.value, remaining: effect.duration ?? 3, sourceId: -1 });
@@ -431,13 +569,18 @@ export class BattleSimulation {
     const enemySide: Side = side === 'player' ? 'enemy' : 'player';
     for (const unit of this.units) {
       if (!unit.alive || unit.owner !== enemySide || unit.id === excludedId) continue;
-      if (distance(x, y, unit.x, unit.y) <= radius + unit.radius) this.damageUnit(unit, damage * 0.65);
+      if (distance(x, y, unit.x, unit.y) <= radius + unit.radius) this.damageUnit(unit, damage * 0.65, side);
     }
   }
 
-  private damageUnit(unit: UnitState, damage: number): void {
+  private damageUnit(unit: UnitState, damage: number, sourceSide?: Side): void {
     if (!unit.alive) return;
-    unit.hp -= damage;
+    const finalDamage = damage * (1 - Math.max(0, Math.min(0.8, unit.damageReduction ?? 0)));
+    unit.hp -= finalDamage;
+    if (sourceSide) {
+      this.statistics.damage[sourceSide] += finalDamage;
+      this.getCardStat(unit.cardId).damage += 0;
+    }
     if (unit.hp <= 0) this.killUnit(unit);
   }
 
@@ -450,13 +593,21 @@ export class BattleSimulation {
 
   private damageTower(tower: TowerState, damage: number, attacker: Side): void {
     if (!tower.alive) return;
-    tower.hp -= damage;
-    this.emit({ type: 'tower-damaged', side: attacker, x: tower.x, y: tower.y, targetX: tower.x, targetY: tower.y });
+    let finalDamage = damage;
+    if (this.options.bossShield && tower.side === 'enemy' && tower.lane === 'king') {
+      const guardAlive = this.towers.some((item) => item.side === 'enemy' && item.lane !== 'king' && item.alive);
+      if (guardAlive) finalDamage *= 0.4;
+    }
+    tower.hp -= finalDamage;
+    this.statistics.damage[attacker] += finalDamage;
+    this.emit({ type: 'tower-damaged', side: attacker, x: tower.x, y: tower.y, targetX: tower.x, targetY: tower.y, amount: finalDamage });
     if (tower.hp > 0) return;
     tower.hp = 0;
     tower.alive = false;
     this.crowns[attacker] += tower.lane === 'king' ? 3 : 1;
+    this.statistics.towersDestroyed[attacker] += tower.lane === 'king' ? 3 : 1;
     this.emit({ type: 'tower-destroyed', side: attacker, x: tower.x, y: tower.y, text: tower.lane === 'king' ? '国王塔被摧毁' : '守卫塔被摧毁' });
+    if (this.activeModifier === 'reinforcement' && tower.lane !== 'king') this.spawnReinforcement(tower.side, tower.lane);
     if (tower.lane === 'king') this.finish({ winner: attacker, reason: 'king-destroyed', playerCrowns: this.crowns.player, enemyCrowns: this.crowns.enemy });
   }
 
@@ -476,6 +627,20 @@ export class BattleSimulation {
     return movement === 'air' || !this.inRiver(x);
   }
 
+  private onBridge(x: number, y: number): boolean {
+    if (x < ARENA.riverLeft || x > ARENA.riverRight) return false;
+    return Math.abs(y - ARENA.topLaneY) <= 60 || Math.abs(y - ARENA.bottomLaneY) <= 60;
+  }
+
+  private spawnReinforcement(side: Side, lane: Lane): void {
+    const card = getCard('spore_squad');
+    if (!card.stats) return;
+    const baseX = side === 'player' ? TOWER_POSITIONS.playerTop.x - 45 : TOWER_POSITIONS.enemyTop.x + 45;
+    const y = lane === 'top' ? ARENA.topLaneY : ARENA.bottomLaneY;
+    for (let index = 0; index < 3; index += 1) this.units.push(this.createUnit(side, card.id, card.name, lane, baseX, y - 24 + index * 24, card.stats, 1));
+    this.emit({ type: 'modifier', side, x: baseX, y, text: '增援协议启动' });
+  }
+
   private inRiver(x: number): boolean { return x >= ARENA.riverLeft - 12 && x <= ARENA.riverRight + 12; }
   private totalTowerHealth(side: Side): number { return this.towers.filter((tower) => tower.side === side && tower.alive).reduce((sum, tower) => sum + tower.hp, 0); }
   private getTimeLeft(): number { return this.overtime ? Math.max(0, this.options.regularSeconds + this.options.overtimeSeconds - this.elapsedSeconds) : Math.max(0, this.options.regularSeconds - this.elapsedSeconds); }
@@ -484,6 +649,14 @@ export class BattleSimulation {
     if (this.result) return;
     this.result = result;
     this.emit({ type: 'battle-ended', text: result.winner });
+  }
+
+  private getCardStat(cardId: string): { played: number; damage: number; healing: number } {
+    const current = this.statistics.byCard[cardId];
+    if (current) return current;
+    const created = { played: 0, damage: 0, healing: 0 };
+    this.statistics.byCard[cardId] = created;
+    return created;
   }
 
   private emit(event: BattleEvent): void { this.events.push(event); }
@@ -513,4 +686,27 @@ function upsertStatus(unit: UnitState, incoming: ActiveStatus): void {
 }
 function getCardSafeType(cardId: string): string | null { try { return getCard(cardId).type; } catch { return null; } }
 function distance(ax: number, ay: number, bx: number, by: number): number { return Math.hypot(ax - bx, ay - by); }
+
+
+
+
+
+
+
+function createStatistics(): BattleStatistics {
+  return {
+    damage: { player: 0, enemy: 0 },
+    healing: { player: 0, enemy: 0 },
+    elixirSpent: { player: 0, enemy: 0 },
+    cardsPlayed: { player: 0, enemy: 0 },
+    fusions: { player: 0, enemy: 0 },
+    towersDestroyed: { player: 0, enemy: 0 },
+    byCard: {},
+  };
+}
+
+
+
+
+
 

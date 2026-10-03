@@ -5,6 +5,7 @@ import { MenuScene } from './scenes/MenuScene';
 import { StageSelectScene } from './scenes/StageSelectScene';
 import { DeckScene } from './scenes/DeckScene';
 import { SettingsScene } from './scenes/SettingsScene';
+import { PracticeScene } from './scenes/PracticeScene';
 import { BattleScene } from './scenes/BattleScene';
 import { RewardScene } from './scenes/RewardScene';
 import { GAME_HEIGHT, GAME_WIDTH } from './core/constants';
@@ -29,7 +30,8 @@ const game = new Phaser.Game({
   input: {
     activePointers: 3,
   },
-  scene: [BootScene, MenuScene, StageSelectScene, DeckScene, SettingsScene, BattleScene, RewardScene],
+  scene: [BootScene, MenuScene, StageSelectScene, PracticeScene, DeckScene, SettingsScene, BattleScene, RewardScene],
 });
 
 export default game;
+

@@ -24,7 +24,7 @@ export class AIController {
       return;
     }
 
-    if (simulation.stage.usesCatalysts && !simulation.getFusionBias('enemy')) {
+    if (simulation.stage.usesCatalysts && !simulation.getFusionCatalyst('enemy')) {
       const catalystIndex = simulation.getHand('enemy').findIndex((id) => getCard(id).type === 'catalyst');
       if (catalystIndex >= 0 && this.random() < 0.08) {
         simulation.useCatalyst('enemy', catalystIndex);
@@ -52,7 +52,7 @@ export class AIController {
     if (!first || !second) return false;
     const cost = getFusionCost(first.card, second.card);
     if (!simulation.canAfford('enemy', cost)) return false;
-    const result = createFusionResult(first.card.id, second.card.id, simulation.getFusionBias('enemy'), this.random, 0.22);
+    const result = createFusionResult(first.card.id, second.card.id, simulation.getFusionCatalyst('enemy'), this.random, 0.22);
     return simulation.fuseCards('enemy', [first.index, second.index], result);
   }
 
@@ -125,3 +125,4 @@ function getCluster(units: BattleSimulation['units']): { x: number; y: number; c
     count: units.length,
   };
 }
+

@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { CARDS } from '../data/cards';
+import { TRAITS } from '../core/FusionSystem';
 import type { CardDefinition, FusionResult } from '../core/types';
 
 const TYPE_COLORS: Record<string, number> = {
@@ -29,7 +30,7 @@ export function ensureFusionTexture(scene: Phaser.Scene, result: FusionResult): 
   if (scene.textures.exists(result.artKey)) return result.artKey;
   const texture = scene.textures.createCanvas(result.artKey, 128, 128);
   if (!texture) {
-    drawGenericFusion(scene, result.artKey, result.signature ? 0xf0b84f : TYPE_COLORS[result.type] ?? 0xf08b4f);
+    drawGenericFusion(scene, result.artKey, result.rarity === 'signature' ? 0xf0b84f : TYPE_COLORS[result.type] ?? 0xf08b4f);
     return result.artKey;
   }
   drawFusionCanvas(scene, texture.getContext(), result);
@@ -78,11 +79,12 @@ const SIGNATURE_LAYERS: Record<string, FusionLayer[]> = {
 
 function drawFusionCanvas(scene: Phaser.Scene, context: CanvasRenderingContext2D, result: FusionResult): void {
   context.clearRect(0, 0, 128, 128);
-  const accent = result.signature ? '#f0b84f' : result.direction === 'combat' ? '#3bb6d4' : '#9b6de0';
+  const traitColor = TRAITS[result.trait].color;
+  const accent = result.rarity === 'signature' ? '#f0b84f' : '#' + traitColor.toString(16).padStart(6, '0');
   context.save();
   context.beginPath();
   context.arc(64, 64, 52, 0, Math.PI * 2);
-  context.fillStyle = result.signature ? 'rgba(78,48,20,0.78)' : 'rgba(35,27,46,0.88)';
+  context.fillStyle = result.rarity === 'signature' ? 'rgba(78,48,20,0.78)' : 'rgba(35,27,46,0.88)';
   context.fill();
   context.lineWidth = 5;
   context.strokeStyle = accent;
@@ -98,8 +100,17 @@ function drawFusionCanvas(scene: Phaser.Scene, context: CanvasRenderingContext2D
 
   const sourceA = CARDS[result.sourceCardIds[0]]?.artKey;
   const sourceB = CARDS[result.sourceCardIds[1]]?.artKey;
-  if (sourceA) drawTextureLayer(scene, context, { key: sourceA, x: -10, y: 2, scale: 0.92 });
-  if (sourceB) drawTextureLayer(scene, context, { key: sourceB, x: 15, y: 5, scale: 0.68, alpha: 0.9, operation: 'screen' });
+  if (sourceA) {
+    drawTextureLayer(scene, context, { key: sourceA, x: -3, y: 2, scale: 0.92 });
+    context.save();
+    context.globalCompositeOperation = 'source-atop';
+    context.globalAlpha = result.rarity === 'common' ? 0.2 : 0.3;
+    context.fillStyle = accent;
+    context.fillRect(0, 0, 128, 128);
+    context.restore();
+  }
+  if (sourceB) drawTextureLayer(scene, context, { key: sourceB, x: 39, y: 39, scale: 0.34, alpha: 0.92 });
+  if (result.rarity === 'rare') drawTextureLayer(scene, context, { key: 'particle_dot', x: -39, y: -39, scale: 0.08, alpha: 0.9 });
   drawFusionSpark(context, accent);
 }
 
@@ -208,5 +219,7 @@ function drawGenericFusion(scene: Phaser.Scene, key: string, color: number): voi
   graphics.generateTexture(key, 64, 64);
   graphics.destroy();
 }
+
+
 
 
