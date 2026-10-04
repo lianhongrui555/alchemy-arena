@@ -80,8 +80,60 @@ test('新存档首次进入会开启教程', async ({ page }) => {
   expect(await page.evaluate(() => (window as any).__ALCHEMY_BATTLE__.snapshot().units.some((unit: { owner: string }) => unit.owner === 'player'))).toBe(true);
 });
 
+async function seedJourneySave(page: import('@playwright/test').Page, nodeId: string): Promise<void> {
+  await page.addInitScript(({ activeDeck, currentNodeId }) => {
+    localStorage.setItem('alchemy-arena.save.v1', JSON.stringify({
+      version: 2,
+      unlockedCardIds: activeDeck,
+      deckPresets: { '1': activeDeck, '2': activeDeck, '3': activeDeck },
+      activeDeckPreset: 1,
+      practice: { deckIds: activeDeck, opponent: 'off', infiniteElixir: true, timerEnabled: false },
+      nodeStars: {}, nodeLossStreaks: {}, firstClearedNodeIds: [], unlockedJourneyLayers: [1, 2, 3],
+      activeJourney: {
+        status: 'active',
+        currentNodeId,
+        route: [currentNodeId],
+        nodeModifiers: {},
+        blessings: {},
+        lockedDeckIds: activeDeck,
+      },
+      tutorialCompleted: true,
+      tutorialStep: 0,
+      settings: { musicVolume: 0, sfxVolume: 0, preferredBattleSpeed: 1 },
+    }));
+  }, { activeDeck: deck, currentNodeId: nodeId });
+}
 
+async function enterFastJourneyBattle(page: import('@playwright/test').Page, nodeId: string): Promise<void> {
+  await seedJourneySave(page, nodeId);
+  await page.goto('/alchemy-arena/?debug=1&fast=1');
+  await page.waitForTimeout(700);
+  await page.mouse.click(960, 455);
+  await page.waitForTimeout(800);
+  await page.mouse.click(960, 760);
+  await page.waitForFunction(() => Boolean((window as any).__ALCHEMY_BATTLE__), null, { timeout: 8000 });
+}
 
+const aiScenarios = [
+  { nodeId: 'l1_trial', label: '见习炼金师' },
+  { nodeId: 'l2_silver', label: '白银铸造师' },
+  { nodeId: 'l3_crown', label: '大炼金师' },
+];
 
+for (const scenario of aiScenarios) {
+  test(`${scenario.label} 可以快速完成一场对局并正常出牌`, async ({ page }) => {
+    const pageErrors: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    await enterFastJourneyBattle(page, scenario.nodeId);
 
-
+    await expect.poll(
+      () => page.evaluate(() => (window as any).__ALCHEMY_BATTLE__.statistics().cardsPlayed.enemy),
+      { timeout: 8000 },
+    ).toBeGreaterThan(0);
+    await expect.poll(
+      () => page.evaluate(() => Boolean((window as any).__ALCHEMY_BATTLE__.snapshot().result)),
+      { timeout: 8000 },
+    ).toBe(true);
+    expect(pageErrors).toEqual([]);
+  });
+}

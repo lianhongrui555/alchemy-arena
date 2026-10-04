@@ -79,7 +79,7 @@ export class BattleScene extends Phaser.Scene {
       blessings: this.sceneData?.blessings,
       bossShield: this.sceneData?.nodeId === 'l3_crown',
     });
-    this.ai = new AIController();
+    this.ai = new AIController(Math.random, this.sceneData?.aiAssistLevel ?? 0);
     this.cameras.main.setBackgroundColor('#100d16');
     this.drawArena();
     this.createTowerViews();
@@ -98,6 +98,7 @@ export class BattleScene extends Phaser.Scene {
     if (this.registry.get('debugBattle')) {
       (window as unknown as { __ALCHEMY_BATTLE__: unknown }).__ALCHEMY_BATTLE__ = {
         snapshot: () => this.simulation.getSnapshot(),
+        statistics: () => this.simulation.getStatistics(),
         hand: () => this.simulation.getHand('player'),
         selectedHandIndex: () => this.selectedHandIndex,
         fusionSelection: () => [...this.fusionSelection],
@@ -816,7 +817,7 @@ export class BattleScene extends Phaser.Scene {
     this.timerText?.setText(`${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`);
     this.phaseText?.setText(snapshot.overtime ? '加时 · 双倍圣水' : '常规时间');
     this.playerElixirText?.setText(`我方圣水 ${snapshot.playerElixir.toFixed(1)} / 10`);
-    this.enemyElixirText?.setText(`敌方圣水 ${snapshot.enemyElixir.toFixed(1)}${this.stage.elixirMultiplier > 1 ? ' · 加速' : ''}`);
+    this.enemyElixirText?.setText(`敌方圣水 ${snapshot.enemyElixir.toFixed(1)}`);
     this.elixirBar?.setDisplaySize(50 * snapshot.playerElixir, 26);
     const playerCrowns = snapshot.towers.filter((tower) => tower.side === 'enemy' && !tower.alive).reduce((sum, tower) => sum + (tower.lane === 'king' ? 3 : 1), 0);
     const enemyCrowns = snapshot.towers.filter((tower) => tower.side === 'player' && !tower.alive).reduce((sum, tower) => sum + (tower.lane === 'king' ? 3 : 1), 0);
@@ -950,33 +951,3 @@ function outerRing(scene: Phaser.Scene, x: number, y: number): void {
   const ring = scene.add.circle(x, y, 20, 0xffffff, 0).setStrokeStyle(8, COLORS.gold, 1).setDepth(10);
   scene.tweens.add({ targets: ring, radius: 130, alpha: 0, duration: 600, onComplete: () => ring.destroy() });
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

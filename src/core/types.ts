@@ -13,6 +13,7 @@ export type FusionRarity = 'common' | 'rare' | 'signature';
 export type CatalystKind = 'order' | 'chaos';
 
 export type BattleMode = 'campaign' | 'practice' | 'tutorial';
+export type AIArchetype = 'apprentice' | 'silversmith' | 'grand-alchemist';
 export type DeckPresetId = 1 | 2 | 3;
 export type JourneyLayer = 1 | 2 | 3;
 export type NodeId = 'l1_trial' | 'l1_greenhouse' | 'l2_silver' | 'l2_frost' | 'l3_crown';
@@ -117,15 +118,26 @@ export interface FusionResult {
 
 export type PlayableCard = CardDefinition | FusionResult;
 
+
+export interface AIBehavior {
+  archetype: AIArchetype;
+  reactionMin: number;
+  reactionMax: number;
+  fusionChance: number;
+  catalystChance: number;
+  defenseWeight: number;
+  offenseWeight: number;
+  laneSwitchChance: number;
+  mistakeChance: number;
+  preferTraps: boolean;
+  preferBuildings: boolean;
+}
 export interface StageConfig {
   id: number;
   name: string;
   subtitle: string;
   aiName: string;
-  statMultiplier: number;
-  elixirMultiplier: number;
-  reactionMin: number;
-  reactionMax: number;
+  aiBehavior: AIBehavior;
   deck: string[];
   usesCatalysts: boolean;
   usesTraps: boolean;
@@ -179,6 +191,7 @@ export interface SaveV2 {
   activeDeckPreset: DeckPresetId;
   practice: PracticeSettings;
   nodeStars: Partial<Record<NodeId, 0 | 1 | 2 | 3>>;
+  nodeLossStreaks: Partial<Record<NodeId, number>>;
   firstClearedNodeIds: NodeId[];
   unlockedJourneyLayers: JourneyLayer[];
   activeJourney: ActiveJourney | null;
@@ -333,10 +346,5 @@ export interface BattleSceneData {
   modifierId?: BattleModifierId;
   blessings?: Partial<Record<BlessingId, 1 | 2>>;
   tutorialStep?: number;
+  aiAssistLevel?: 0 | 1;
 }
-
-
-
-
-
-

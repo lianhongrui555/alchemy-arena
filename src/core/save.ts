@@ -16,6 +16,7 @@ export function createDefaultSave(): SaveV2 {
     activeDeckPreset: 1,
     practice: { deckIds: [...INITIAL_DECK_IDS], opponent: 'off', infiniteElixir: true, timerEnabled: false },
     nodeStars: {},
+    nodeLossStreaks: {},
     firstClearedNodeIds: [],
     unlockedJourneyLayers: [1],
     activeJourney: null,
@@ -170,6 +171,7 @@ export function sanitizeSave(input: any): SaveV2 {
       timerEnabled: practiceInput.timerEnabled ?? false,
     },
     nodeStars,
+    nodeLossStreaks: sanitizeNodeLossStreaks(input.nodeLossStreaks),
     firstClearedNodeIds: Array.isArray(input.firstClearedNodeIds) ? ([...new Set((input.firstClearedNodeIds as string[]).filter((id) => NODE_IDS.includes(id as NodeId)))] as NodeId[]) : [],
     unlockedJourneyLayers: [...new Set([1, ...layers])].sort() as JourneyLayer[],
     activeJourney: sanitizeJourney(input.activeJourney),
@@ -215,6 +217,28 @@ function sanitizeJourney(journey: ActiveJourney | null | undefined): ActiveJourn
   return cloneJourney(journey);
 }
 
+export function getAIAssistLevel(save: SaveV2, nodeId: NodeId): 0 | 1 {
+  return (save.nodeLossStreaks[nodeId] ?? 0) >= 2 ? 1 : 0;
+}
+
+export function addNodeLoss(save: SaveV2, nodeId: NodeId): SaveV2 {
+  const next = cloneSave(save);
+  next.nodeLossStreaks[nodeId] = (next.nodeLossStreaks[nodeId] ?? 0) + 1;
+  persistSave(next);
+  return next;
+}
+
+export function resetNodeLossStreak(save: SaveV2, nodeId: NodeId): SaveV2 {
+  const next = cloneSave(save);
+  delete next.nodeLossStreaks[nodeId];
+  persistSave(next);
+  return next;
+}
+
+function sanitizeNodeLossStreaks(value: Partial<Record<NodeId, number>> | undefined): Partial<Record<NodeId, number>> {
+  if (!value) return {};
+  return Object.fromEntries(Object.entries(value).filter(([id, count]) => NODE_IDS.includes(id as NodeId) && Number(count) > 0).map(([id, count]) => [id, Math.min(10, Number(count))]));
+}
 function sanitizeNodeStars(value: Partial<Record<NodeId, 0 | 1 | 2 | 3>> | undefined): SaveV2['nodeStars'] {
   if (!value) return {};
   return Object.fromEntries(Object.entries(value).filter(([id]) => NODE_IDS.includes(id as NodeId))) as SaveV2['nodeStars'];
@@ -240,6 +264,7 @@ function cloneSave(save: SaveV2): SaveV2 {
     deckPresets: { '1': [...save.deckPresets['1']], '2': [...save.deckPresets['2']], '3': [...save.deckPresets['3']] },
     practice: { ...save.practice, deckIds: [...save.practice.deckIds] },
     nodeStars: { ...save.nodeStars },
+    nodeLossStreaks: { ...save.nodeLossStreaks },
     firstClearedNodeIds: [...save.firstClearedNodeIds],
     unlockedJourneyLayers: [...save.unlockedJourneyLayers],
     activeJourney: save.activeJourney ? cloneJourney(save.activeJourney) : null,
@@ -250,5 +275,3 @@ function cloneSave(save: SaveV2): SaveV2 {
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
 }
-
-

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chooseRewardCards, createDefaultSave, sanitizeSave, updateDeck, unlockCard } from '../src/core/save';
+import { chooseRewardCards, createDefaultSave, getAIAssistLevel, sanitizeSave, updateDeck, unlockCard } from '../src/core/save';
 import { INITIAL_UNLOCKED_IDS } from '../src/data/cards';
 
 describe('存档与永久收藏', () => {
@@ -9,6 +9,7 @@ describe('存档与永久收藏', () => {
     expect(save.deckPresets['1']).toHaveLength(8);
     expect(save.deckPresets['2']).toHaveLength(8);
     expect(save.tutorialCompleted).toBe(false);
+    expect(save.nodeLossStreaks).toEqual({});
   });
 
   it('V1 存档迁移后保留收藏、牌组和音量并跳过教程', () => {
@@ -25,6 +26,15 @@ describe('存档与永久收藏', () => {
     expect(rewards).toHaveLength(3);
     const unlocked = unlockCard(save, rewards[0]!);
     expect(unlocked.unlockedCardIds).toContain(rewards[0]);
+  });
+
+  it('同一节点连续失败两次后才启用轻微辅助', () => {
+    const save = createDefaultSave();
+    expect(getAIAssistLevel(save, 'l1_trial')).toBe(0);
+    save.nodeLossStreaks.l1_trial = 1;
+    expect(getAIAssistLevel(save, 'l1_trial')).toBe(0);
+    save.nodeLossStreaks.l1_trial = 2;
+    expect(getAIAssistLevel(save, 'l1_trial')).toBe(1);
   });
 
   it('拒绝未解锁卡组成正式牌组', () => {

@@ -26,6 +26,21 @@ describe('JourneySystem', () => {
     expect(save.activeJourney?.blessings[blessing]).toBe(1);
   });
 
+  it('同一节点连败会累计辅助，胜利后清空辅助记录', () => {
+    let save = createDefaultSave();
+    const failNode = (current: typeof save): typeof save => {
+      current.activeJourney = createJourney(current.deckPresets['1'], () => 0);
+      return completeJourneyNode(current, 'l1_trial', { winner: 'enemy', playerKingAlive: false, elapsedSeconds: 120 });
+    };
+    save = failNode(save);
+    expect(save.nodeLossStreaks.l1_trial).toBe(1);
+    save = failNode(save);
+    expect(save.nodeLossStreaks.l1_trial).toBe(2);
+
+    save.activeJourney = createJourney(save.deckPresets['1'], () => 0);
+    save = completeJourneyNode(save, 'l1_trial', { winner: 'player', playerKingAlive: true, elapsedSeconds: 100 });
+    expect(save.nodeLossStreaks.l1_trial).toBeUndefined();
+  });
   it('失败会清空本轮路线但保留节点星级', () => {
     let save = createDefaultSave();
     save.activeJourney = createJourney(save.deckPresets['1'], () => 0);

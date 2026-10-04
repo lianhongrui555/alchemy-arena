@@ -1,6 +1,6 @@
 import { getJourneyNode, getNodesForLayer } from '../data/levels';
 import { pickBlessingChoices, pickUnusedModifiers } from '../data/journey';
-import { chooseRewardCards, recordNodeCompletion, saveActiveJourney } from './save';
+import { addNodeLoss, chooseRewardCards, recordNodeCompletion, resetNodeLossStreak, saveActiveJourney } from './save';
 import type {
   ActiveJourney,
   BlessingId,
@@ -51,8 +51,10 @@ export function completeJourneyNode(save: SaveV2, nodeId: NodeId, outcome: Journ
   const journey = cloneJourney(next.activeJourney);
   const node = getJourneyNode(nodeId);
   if (outcome.winner !== 'player') {
+    next = addNodeLoss(next, nodeId);
     return saveActiveJourney(next, null);
   }
+  next = resetNodeLossStreak(next, nodeId);
 
   journey.status = 'reward';
   journey.pendingCardChoices = stars > 0 && !save.firstClearedNodeIds.includes(nodeId)
@@ -128,4 +130,3 @@ export function cloneJourney(journey: ActiveJourney): ActiveJourney {
     pendingBlessingChoices: journey.pendingBlessingChoices ? [...journey.pendingBlessingChoices] : undefined,
   };
 }
-

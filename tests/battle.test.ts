@@ -28,11 +28,11 @@ describe('BattleSimulation', () => {
     expect(simulation.playHandCard('player', 0, 'top', 1500, 500)).toBe(true);
   });
 
-  it('第二关敌方单位获得 5% 生命加成', () => {
+  it('第二关敌方单位不再获得生命加成', () => {
     const simulation = new BattleSimulation(getStage(2), INITIAL_DECK_IDS, undefined, { startingElixir: 10 });
     expect(simulation.playHandCard('enemy', 0, 'top', 1300, 310)).toBe(true);
     const enemy = simulation.units.find((unit) => unit.owner === 'enemy');
-    expect(enemy?.maxHp).toBe(1890);
+    expect(enemy?.maxHp).toBe(1800);
   });
 
   it('十四张基础牌都可以被正常使用', () => {

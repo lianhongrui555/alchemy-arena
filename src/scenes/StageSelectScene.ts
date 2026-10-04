@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { COLORS } from '../core/constants';
-import { getActiveDeck, loadSave, saveActiveJourney } from '../core/save';
+import { getAIAssistLevel, getActiveDeck, loadSave, saveActiveJourney } from '../core/save';
 import { abandonJourney, chooseJourneyBlessing, createJourney, selectJourneyNode } from '../core/JourneySystem';
 import { getJourneyNode, getNodesForLayer } from '../data/levels';
 import { BLESSINGS } from '../data/journey';
@@ -108,8 +108,6 @@ export class StageSelectScene extends Phaser.Scene {
   private startBattle(): void {
     const journey = this.save.activeJourney;
     if (!journey) return;
-    this.scene.start('Battle', { mode: 'campaign', stageId: getJourneyNode(journey.currentNodeId).aiStageId, nodeId: journey.currentNodeId, deckIds: journey.lockedDeckIds, modifierId: journey.nodeModifiers[journey.currentNodeId], blessings: journey.blessings });
+    this.scene.start('Battle', { mode: 'campaign', stageId: getJourneyNode(journey.currentNodeId).aiStageId, nodeId: journey.currentNodeId, deckIds: journey.lockedDeckIds, modifierId: journey.nodeModifiers[journey.currentNodeId], blessings: journey.blessings, aiAssistLevel: getAIAssistLevel(this.save, journey.currentNodeId) });
   }
 }
-
-

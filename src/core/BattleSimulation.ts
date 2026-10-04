@@ -83,8 +83,8 @@ export class BattleSimulation {
       overtimeSeconds: options.overtimeSeconds ?? BATTLE_RULES.overtimeSeconds,
       startingElixir: options.startingElixir ?? BATTLE_RULES.startingElixir,
       playerElixirMultiplier: options.playerElixirMultiplier ?? 1,
-      enemyElixirMultiplier: options.enemyElixirMultiplier ?? stage.elixirMultiplier,
-      enemyStatMultiplier: options.enemyStatMultiplier ?? stage.statMultiplier,
+      enemyElixirMultiplier: options.enemyElixirMultiplier ?? 1,
+      enemyStatMultiplier: options.enemyStatMultiplier ?? 1,
       timerEnabled: options.timerEnabled ?? true,
       infiniteElixir: options.infiniteElixir ?? false,
       modifierId: options.modifierId,
@@ -133,6 +133,8 @@ export class BattleSimulation {
     };
   }
 
+  isBattleOver(): boolean { return this.result !== null; }
+  getElapsedSeconds(): number { return this.elapsedSeconds; }
   getElixir(side: Side): number { return this.elixir[side]; }
   getHand(side: Side): string[] { return (side === 'player' ? this.playerDeck : this.enemyDeck).copyHand(); }
   getNextCard(side: Side): string { return (side === 'player' ? this.playerDeck : this.enemyDeck).peekNext(); }
@@ -720,14 +722,3 @@ function createStatistics(): BattleStatistics {
     byCard: {},
   };
 }
-
-
-
-
-
-
-
-
-
-
-
