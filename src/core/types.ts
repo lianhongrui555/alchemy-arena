@@ -42,6 +42,7 @@ export interface UnitStats {
   movement: MovementMode;
   targets: TargetMask;
   targetPreference?: 'any' | 'buildings';
+  sightRange?: number;
   attackEffects?: EffectSpec[];
   deployEffects?: EffectSpec[];
   deathEffects?: EffectSpec[];
@@ -226,6 +227,7 @@ export interface UnitState {
   movement: MovementMode;
   targets: TargetMask;
   targetPreference: 'any' | 'buildings';
+  sightRange: number;
   attackEffects: EffectSpec[];
   deathEffects: EffectSpec[];
   splashRadius: number;
@@ -332,6 +334,7 @@ export interface BattleSceneData {
   blessings?: Partial<Record<BlessingId, 1 | 2>>;
   tutorialStep?: number;
 }
+
 
 
 

@@ -475,7 +475,7 @@ export class BattleSimulation {
     const enemyUnits = this.units
       .filter((candidate) => candidate.alive && candidate.owner === enemySide && canTarget(unit.targets, candidate.movement))
       .map((candidate) => ({ candidate, dist: distance(unit.x, unit.y, candidate.x, candidate.y) }))
-      .filter(({ candidate, dist }) => dist <= Math.max(unit.range + 180, 330) + candidate.radius)
+      .filter(({ candidate, dist }) => Math.abs(candidate.y - unit.y) <= 100 && dist <= unit.sightRange + candidate.radius)
       .sort((a, b) => a.dist - b.dist);
     if (enemyUnits[0]) {
       const target = enemyUnits[0].candidate;
@@ -527,7 +527,7 @@ export class BattleSimulation {
       id: this.nextEntityId++, owner: side, cardId, name, lane, x, y,
       maxHp: Math.round(stats.maxHp * multiplier), hp: Math.round(stats.maxHp * multiplier), damage: stats.damage * multiplier, damageReduction: stats.damageReduction ?? 0,
       range: stats.range, attackInterval: stats.attackInterval, attackCooldown: Math.random() * stats.attackInterval * 0.35,
-      speed: stats.speed, radius: stats.radius, movement: stats.movement, targets: stats.targets, targetPreference: stats.targetPreference ?? 'any',
+      speed: stats.speed, radius: stats.radius, movement: stats.movement, targets: stats.targets, targetPreference: stats.targetPreference ?? 'any', sightRange: stats.sightRange ?? stats.range + 50,
       attackEffects: (stats.attackEffects ?? []).map((effect) => ({ ...effect, value: effect.kind === 'damage' ? effect.value * multiplier : effect.value })),
       deathEffects: (stats.deathEffects ?? []).map((effect) => ({ ...effect })), splashRadius: stats.splashRadius ?? 0,
       chargeDistance: stats.chargeDistance ?? 0, chargeMultiplier: stats.chargeMultiplier ?? 1, chargeProgress: 0,
@@ -720,6 +720,7 @@ function createStatistics(): BattleStatistics {
     byCard: {},
   };
 }
+
 
 
 

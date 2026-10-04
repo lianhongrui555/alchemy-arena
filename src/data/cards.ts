@@ -5,43 +5,43 @@ export const CARDS: Record<string, CardDefinition> = {
     id: 'anvil_guard', name: '铁砧守卫', role: '建筑杀手坦克', fusionNoun: '守卫', fusionTrait: 'armor', type: 'unit', tags: ['ground', 'tank', 'melee', 'building-only', 'win-condition'],
     cost: 4, power: 4.8, targeting: 'ground', artKey: 'unit_anvil', effectId: 'unit_default',
     description: '高生命的攻城坦克，只攻击防御塔和建筑，不理会敌方部队。',
-    stats: { maxHp: 1800, damage: 180, range: 52, attackInterval: 1.35, speed: 36, radius: 29, movement: 'ground', targets: 'ground', targetPreference: 'buildings' },
+    stats: { maxHp: 1800, damage: 180, range: 52, attackInterval: 1.35, speed: 36, radius: 29, movement: 'ground', targets: 'ground', targetPreference: 'buildings', sightRange: 80 },
   },
   spark_archer: {
     id: 'spark_archer', name: '星火弓手', fusionNoun: '弓手', fusionTrait: 'spark', type: 'unit', tags: ['ground', 'ranged', 'multi'],
     cost: 3, power: 3.6, targeting: 'ground', artKey: 'unit_archer', effectId: 'unit_default',
     description: '两名远程弓手，可以同时攻击空中与地面目标。',
-    stats: { maxHp: 195, damage: 58, range: 270, attackInterval: 0.78, speed: 76, radius: 15, movement: 'ground', targets: 'both', spawnCount: 2 },
+    stats: { maxHp: 195, damage: 58, range: 270, attackInterval: 0.78, speed: 76, radius: 15, movement: 'ground', targets: 'both', spawnCount: 2, sightRange: 300 },
   },
   spore_squad: {
     id: 'spore_squad', name: '孢子小队', fusionNoun: '菌群', fusionTrait: 'spore', type: 'unit', tags: ['ground', 'swarm', 'melee'],
     cost: 2, power: 2.5, targeting: 'ground', artKey: 'unit_spore', effectId: 'unit_default',
     description: '四只快速孢子兵，数量多但单体生命较低。',
-    stats: { maxHp: 135, damage: 44, range: 34, attackInterval: 0.65, speed: 102, radius: 11, movement: 'ground', targets: 'ground', spawnCount: 4 },
+    stats: { maxHp: 135, damage: 44, range: 34, attackInterval: 0.65, speed: 102, radius: 11, movement: 'ground', targets: 'ground', spawnCount: 4, sightRange: 105 },
   },
   wind_griffin: {
     id: 'wind_griffin', name: '迅羽狮鹫', fusionNoun: '狮鹫', fusionTrait: 'gale', type: 'unit', tags: ['air', 'fast', 'melee'],
     cost: 3, power: 3.5, targeting: 'ground', artKey: 'unit_griffin', effectId: 'unit_default',
     description: '飞行单位，可以越河直达目标，速度很快。',
-    stats: { maxHp: 510, damage: 92, range: 54, attackInterval: 0.88, speed: 112, radius: 20, movement: 'air', targets: 'both' },
+    stats: { maxHp: 510, damage: 92, range: 54, attackInterval: 0.88, speed: 112, radius: 20, movement: 'air', targets: 'both', sightRange: 130 },
   },
   steam_charger: {
     id: 'steam_charger', name: '蒸汽冲锋者', fusionNoun: '冲锋者', fusionTrait: 'steam', type: 'unit', tags: ['ground', 'charger', 'melee'],
     cost: 4, power: 4.7, targeting: 'ground', artKey: 'unit_charger', effectId: 'unit_charge',
     description: '长距离冲锋后造成双倍伤害，适合突破防线。',
-    stats: { maxHp: 790, damage: 145, range: 46, attackInterval: 1.0, speed: 72, radius: 22, movement: 'ground', targets: 'ground', chargeDistance: 220, chargeMultiplier: 2 },
+    stats: { maxHp: 790, damage: 145, range: 46, attackInterval: 1.0, speed: 72, radius: 22, movement: 'ground', targets: 'ground', chargeDistance: 220, chargeMultiplier: 2, sightRange: 145 },
   },
   alchemy_cannon: {
     id: 'alchemy_cannon', name: '炼金炮台', fusionNoun: '炮台', fusionTrait: 'blast', type: 'building', tags: ['ground', 'building', 'ranged', 'area'],
     cost: 4, power: 4.2, targeting: 'ground', artKey: 'building_cannon', effectId: 'building_default',
     description: '固定炮台，向范围内敌人发射范围爆破弹。',
-    stats: { maxHp: 830, damage: 116, range: 370, attackInterval: 1.25, speed: 0, radius: 27, movement: 'ground', targets: 'ground', splashRadius: 58, lifetime: 38 },
+    stats: { maxHp: 830, damage: 116, range: 370, attackInterval: 1.25, speed: 0, radius: 27, movement: 'ground', targets: 'ground', splashRadius: 58, lifetime: 38, sightRange: 380 },
   },
   life_spring: {
     id: 'life_spring', name: '生命泉眼', fusionNoun: '泉眼', fusionTrait: 'life', type: 'building', tags: ['ground', 'building', 'support', 'heal'],
     cost: 4, power: 3.8, targeting: 'ground', artKey: 'building_spring', effectId: 'building_heal',
     description: '持续治疗范围内的友军，但无法攻击。',
-    stats: { maxHp: 720, damage: 0, range: 45, attackInterval: 1.1, speed: 0, radius: 26, movement: 'ground', targets: 'ground', lifetime: 34, healPerSecond: 64, healRadius: 205 },
+    stats: { maxHp: 720, damage: 0, range: 45, attackInterval: 1.1, speed: 0, radius: 26, movement: 'ground', targets: 'ground', lifetime: 34, healPerSecond: 64, healRadius: 205, sightRange: 220 },
   },
   flame_flask: {
     id: 'flame_flask', name: '炽焰瓶', fusionNoun: '炽焰瓶', fusionTrait: 'spark', type: 'spell', tags: ['spell', 'damage', 'area', 'fire'],
@@ -101,5 +101,6 @@ export function getCard(id: string): CardDefinition {
 export function getDeckCards(ids: string[]): CardDefinition[] {
   return ids.map(getCard);
 }
+
 
 

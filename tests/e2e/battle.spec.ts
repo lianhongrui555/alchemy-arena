@@ -43,9 +43,15 @@ test('可以熔铸并拖动结果卡部署', async ({ page }) => {
   await enterBattle(page);
   await page.mouse.click(220, 889);
   await page.waitForTimeout(250);
-  await page.mouse.click(950, 973);
-  await page.waitForTimeout(120);
-  await page.mouse.click(1120, 973);
+  await page.mouse.move(950, 973);
+  await page.mouse.down();
+  await page.mouse.move(210, 780, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(180);
+  await page.mouse.move(1120, 973);
+  await page.mouse.down();
+  await page.mouse.move(210, 780, { steps: 8 });
+  await page.mouse.up();
   await page.waitForTimeout(180);
   expect(await page.evaluate(() => (window as any).__ALCHEMY_BATTLE__.fusionSelection())).toEqual([2, 3]);
   await page.mouse.click(1180, 760);
@@ -73,6 +79,7 @@ test('新存档首次进入会开启教程', async ({ page }) => {
   await page.waitForTimeout(400);
   expect(await page.evaluate(() => (window as any).__ALCHEMY_BATTLE__.snapshot().units.some((unit: { owner: string }) => unit.owner === 'player'))).toBe(true);
 });
+
 
 
 

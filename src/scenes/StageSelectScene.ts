@@ -16,7 +16,9 @@ export class StageSelectScene extends Phaser.Scene {
   create(): void {
     this.save = loadSave();
     if (!this.save.activeJourney) this.save = saveActiveJourney(this.save, createJourney(getActiveDeck(this.save)));
-    this.selectedNode = this.save.activeJourney?.currentNodeId ?? 'l1_trial';
+    const pending = this.save.activeJourney?.pendingNextNodes;
+    const stored = this.registry.get('journeySelectedNode') as NodeId | undefined;
+    this.selectedNode = pending?.[0] ?? (stored && this.isNodeAvailable(stored) ? stored : this.save.activeJourney?.currentNodeId ?? 'l1_trial');
     this.cameras.main.setBackgroundColor('#15111c');
     createTopBar(this, '熔炉远征', '三场分支 · 失败清空临时祝福');
     this.drawMap();
@@ -49,7 +51,7 @@ export class StageSelectScene extends Phaser.Scene {
         this.add.text(xPositions[layerIndex]!, y - 5, node.boss ? '冠' : node.themeId === 'spore' ? '孢' : String(layer), { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '38px', color: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5);
         this.add.text(xPositions[layerIndex]!, y + 82, node.name, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '22px', color: unlocked ? '#f6dfaa' : '#77717a', fontStyle: 'bold' }).setOrigin(0.5);
         this.add.text(xPositions[layerIndex]!, y + 112, stars ? '★'.repeat(stars) + '☆'.repeat(3 - stars) : '☆☆☆', { fontFamily: 'sans-serif', fontSize: '24px', color: stars ? '#f0b84f' : '#665f6e' }).setOrigin(0.5);
-        if (unlocked) ring.setInteractive({ useHandCursor: true }).on('pointerdown', () => { this.selectedNode = node.id; this.scene.restart(); });
+        if (unlocked) ring.setInteractive({ useHandCursor: true }).on('pointerdown', () => { this.registry.set('journeySelectedNode', node.id); this.selectedNode = node.id; this.scene.restart(); });
       });
     });
   }
@@ -109,4 +111,5 @@ export class StageSelectScene extends Phaser.Scene {
     this.scene.start('Battle', { mode: 'campaign', stageId: getJourneyNode(journey.currentNodeId).aiStageId, nodeId: journey.currentNodeId, deckIds: journey.lockedDeckIds, modifierId: journey.nodeModifiers[journey.currentNodeId], blessings: journey.blessings });
   }
 }
+
 

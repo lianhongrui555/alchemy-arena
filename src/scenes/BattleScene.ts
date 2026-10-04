@@ -10,7 +10,7 @@ import { CARDS, getCard } from '../data/cards';
 import { getJourneyNode, getStage } from '../data/levels';
 import { getModifier } from '../data/journey';
 import type { BattleEvent, BattleSceneData, CatalystKind, FusionResult, Lane, Side, StageConfig, TowerState, UnitState } from '../core/types';
-import { cardTypeName, createButton, createPanel } from '../ui/components';
+import { cardRoleLabel, cardTypeName, createButton, createPanel } from '../ui/components';
 import { ensureFusionTexture } from '../ui/placeholderArt';
 
 export class BattleScene extends Phaser.Scene {
@@ -41,6 +41,7 @@ export class BattleScene extends Phaser.Scene {
   private crownsText?: Phaser.GameObjects.Text;
   private fusionButtonText?: Phaser.GameObjects.Text;
   private fusionGuideText?: Phaser.GameObjects.Text;
+  private forgeZone?: Phaser.GameObjects.Container;
   private confirmFusionButton?: Phaser.GameObjects.Container;
   private cancelFusionButton?: Phaser.GameObjects.Container;
   private resultShown = false;
@@ -184,6 +185,13 @@ export class BattleScene extends Phaser.Scene {
     this.fusionGuideText = this.add.text(950, 800, '拖动手牌部署；点击手牌查看详情', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '18px', color: '#d8c9e5', backgroundColor: '#17131fdd', padding: { x: 12, y: 6 } }).setOrigin(0.5).setDepth(15);
     this.cancelFusionButton = createButton(this, 740, 760, 230, 64, '退出融合', () => this.toggleFusionMode(false), { fontSize: 20 }).setVisible(false);
     this.confirmFusionButton = createButton(this, 1180, 760, 280, 64, '确认熔铸', () => this.confirmFusion(), { fill: COLORS.gold, hoverFill: 0xffd775, fontSize: 20 }).setVisible(false);
+    this.forgeZone = this.add.container(210, 780).setDepth(19).setVisible(false);
+    this.forgeZone.add(this.add.rectangle(0, 0, 360, 125, 0x22172d, 0.97).setStrokeStyle(4, COLORS.purple, 1));
+    this.forgeZone.add(this.add.text(0, -47, '熔炉融合区', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '20px', color: '#d9b8f0', fontStyle: 'bold' }).setOrigin(0.5));
+    this.forgeZone.add(this.add.rectangle(-85, 8, 135, 58, 0x160f1d, 0.95).setStrokeStyle(2, COLORS.gold, 0.8));
+    this.forgeZone.add(this.add.rectangle(85, 8, 135, 58, 0x160f1d, 0.95).setStrokeStyle(2, COLORS.gold, 0.8));
+    this.forgeZone.add(this.add.text(-85, 8, '① 主体', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '16px', color: '#a99db1' }).setOrigin(0.5).setName('forge-body'));
+    this.forgeZone.add(this.add.text(85, 8, '② 词缀', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '16px', color: '#a99db1' }).setOrigin(0.5).setName('forge-trait'));
     this.pendingLayer = this.add.container(0, 0).setDepth(20);
     this.refreshHandUi();
   }
@@ -290,6 +298,14 @@ export class BattleScene extends Phaser.Scene {
       if (index < 0) return;
       const card = getCard(id);
       const droppedOnCauldron = pointer.x >= 105 && pointer.x <= 335 && pointer.y >= 845 && pointer.y <= 940;
+      const droppedOnForge = pointer.x >= 30 && pointer.x <= 390 && pointer.y >= 717 && pointer.y <= 843;
+      if (this.fusionMode) {
+        if (droppedOnForge) this.addFusionMaterial(index, card.type === 'catalyst');
+        else this.showToast('请把卡牌拖进左侧熔炉区域', true);
+        container.setPosition(x, y);
+        container.setDepth(8);
+        return;
+      }
       if (!this.fusionMode && card.type === 'catalyst' && droppedOnCauldron && this.simulation.useCatalyst('player', index)) {
         audioManager.playSfx('fusion');
         this.refreshHandUi();
@@ -341,7 +357,7 @@ export class BattleScene extends Phaser.Scene {
   private showCardDetail(card: ReturnType<typeof getCard>): void {
     const stats = card.stats;
     const detail = stats
-      ? `${card.name} · ${card.cost}费 · 生命 ${stats.maxHp} · 伤害 ${stats.damage} · 射程 ${stats.range}`
+      ? `${card.name} · ${cardRoleLabel(card)} · ${card.cost}费 · 生命 ${stats.maxHp} · 伤害 ${stats.damage} · ${stats.targetPreference === 'buildings' ? '仅攻击建筑' : `射程 ${stats.range}`}`
       : `${card.name} · ${card.cost}费 · ${card.description}`;
     this.showToast(detail);
   }
@@ -359,6 +375,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private refreshFusionControls(): void {
+    this.forgeZone?.setVisible(this.fusionMode);
     this.cancelFusionButton?.setVisible(this.fusionMode);
     this.confirmFusionButton?.setVisible(this.fusionMode);
     if (this.fusionSelection.length === 2) {
@@ -908,12 +925,33 @@ export class BattleScene extends Phaser.Scene {
     this.tweens.killTweensOf(this.toastText);
     this.tweens.add({ targets: this.toastText, alpha: 0, delay: 1100, duration: 500 });
   }
+  private addFusionMaterial(index: number, isCatalyst: boolean): void {
+    if (isCatalyst) { this.showToast('催化剂不能作为融合素材', true); return; }
+    if (this.fusionSelection.includes(index)) return;
+    if (this.fusionSelection.length >= 2) { this.showToast('熔炉已经放满两张素材', true); return; }
+    this.fusionSelection.push(index);
+    this.refreshFusionControls();
+    this.refreshHandUi();
+  }
+
+  private renderForgeSlots(): void {
+    if (!this.forgeZone) return;
+    const hand = this.simulation.getHand('player');
+    const body = hand[this.fusionSelection[0] ?? -1];
+    const trait = hand[this.fusionSelection[1] ?? -1];
+    const bodyText = this.forgeZone.getByName('forge-body') as Phaser.GameObjects.Text | null;
+    const traitText = this.forgeZone.getByName('forge-trait') as Phaser.GameObjects.Text | null;
+    bodyText?.setText(body ? `① ${getCard(body).name}` : '① 主体');
+    traitText?.setText(trait ? `② ${getCard(trait).name}` : '② 词缀');
+  }
 }
 
 function outerRing(scene: Phaser.Scene, x: number, y: number): void {
   const ring = scene.add.circle(x, y, 20, 0xffffff, 0).setStrokeStyle(8, COLORS.gold, 1).setDepth(10);
   scene.tweens.add({ targets: ring, radius: 130, alpha: 0, duration: 600, onComplete: () => ring.destroy() });
 }
+
+
 
 
 
