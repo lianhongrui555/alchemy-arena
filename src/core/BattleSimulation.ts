@@ -664,12 +664,12 @@ export class BattleSimulation {
 
 function createTowers(): TowerState[] {
   return [
-    createTower('player_king', 'player', 'king', TOWER_POSITIONS.playerKing.x, TOWER_POSITIONS.playerKing.y, 3800, 135, 350, 0.95),
-    createTower('player_top', 'player', 'top', TOWER_POSITIONS.playerTop.x, TOWER_POSITIONS.playerTop.y, 2250, 105, 325, 0.9),
-    createTower('player_bottom', 'player', 'bottom', TOWER_POSITIONS.playerBottom.x, TOWER_POSITIONS.playerBottom.y, 2250, 105, 325, 0.9),
-    createTower('enemy_king', 'enemy', 'king', TOWER_POSITIONS.enemyKing.x, TOWER_POSITIONS.enemyKing.y, 3800, 135, 350, 0.95),
-    createTower('enemy_top', 'enemy', 'top', TOWER_POSITIONS.enemyTop.x, TOWER_POSITIONS.enemyTop.y, 2250, 105, 325, 0.9),
-    createTower('enemy_bottom', 'enemy', 'bottom', TOWER_POSITIONS.enemyBottom.x, TOWER_POSITIONS.enemyBottom.y, 2250, 105, 325, 0.9),
+    createTower('player_king', 'player', 'king', TOWER_POSITIONS.playerKing.x, TOWER_POSITIONS.playerKing.y, 2500, 105, 340, 0.95),
+    createTower('player_top', 'player', 'top', TOWER_POSITIONS.playerTop.x, TOWER_POSITIONS.playerTop.y, 1500, 82, 315, 0.95),
+    createTower('player_bottom', 'player', 'bottom', TOWER_POSITIONS.playerBottom.x, TOWER_POSITIONS.playerBottom.y, 1500, 82, 315, 0.95),
+    createTower('enemy_king', 'enemy', 'king', TOWER_POSITIONS.enemyKing.x, TOWER_POSITIONS.enemyKing.y, 2500, 105, 340, 0.95),
+    createTower('enemy_top', 'enemy', 'top', TOWER_POSITIONS.enemyTop.x, TOWER_POSITIONS.enemyTop.y, 1500, 82, 315, 0.95),
+    createTower('enemy_bottom', 'enemy', 'bottom', TOWER_POSITIONS.enemyBottom.x, TOWER_POSITIONS.enemyBottom.y, 1500, 82, 315, 0.95),
   ];
 }
 
@@ -704,6 +704,7 @@ function createStatistics(): BattleStatistics {
     byCard: {},
   };
 }
+
 
 
 

@@ -40,6 +40,7 @@ export class BattleScene extends Phaser.Scene {
   private elixirBar?: Phaser.GameObjects.Rectangle;
   private crownsText?: Phaser.GameObjects.Text;
   private fusionButtonText?: Phaser.GameObjects.Text;
+  private fusionGuideText?: Phaser.GameObjects.Text;
   private confirmFusionButton?: Phaser.GameObjects.Container;
   private cancelFusionButton?: Phaser.GameObjects.Container;
   private resultShown = false;
@@ -49,6 +50,7 @@ export class BattleScene extends Phaser.Scene {
   private attackAudioCooldown = 0;
   private lastPointer = { x: 0, y: 0 };
   private cardClickCount = 0;
+  private draggingPending = false;
 
   constructor() { super('Battle'); }
 
@@ -179,15 +181,36 @@ export class BattleScene extends Phaser.Scene {
     this.add.rectangle(960, 968, 1900, 215, 0x17131f, 0.98).setStrokeStyle(4, COLORS.parchmentDark, 0.9).setDepth(8);
     createButton(this, 220, 889, 220, 58, '熔铸工坊', () => this.toggleFusionMode(), { fill: COLORS.purple, hoverFill: 0xa576dc, textColor: '#ffffff', fontSize: 22 });
     this.fusionButtonText = this.add.text(220, 842, '选择两张牌进入随机熔铸', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '16px', color: '#cab6dc' }).setOrigin(0.5);
+    this.fusionGuideText = this.add.text(950, 800, '拖动手牌部署；点击手牌查看详情', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '18px', color: '#d8c9e5', backgroundColor: '#17131fdd', padding: { x: 12, y: 6 } }).setOrigin(0.5).setDepth(15);
     this.cancelFusionButton = createButton(this, 1660, 889, 150, 58, '取消选择', () => this.toggleFusionMode(false), { fontSize: 20 }).setVisible(false);
     this.confirmFusionButton = createButton(this, 1830, 889, 190, 58, '确认熔铸', () => this.confirmFusion(), { fill: COLORS.gold, hoverFill: 0xffd775, fontSize: 20 }).setVisible(false);
-    this.pendingLayer = this.add.container(0, 0);
+    this.pendingLayer = this.add.container(0, 0).setDepth(20);
     this.refreshHandUi();
   }
 
   private registerInput(): void {
     this.input.mouse?.disableContextMenu();
-    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => { this.lastPointer = { x: pointer.x, y: pointer.y }; });
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      this.lastPointer = { x: pointer.x, y: pointer.y };
+      if (this.simulation.getPendingFusion('player') && pointer.y >= 805 && pointer.y <= 860 && pointer.x >= 735 && pointer.x <= 1185) this.draggingPending = true;
+    });
+    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      this.lastPointer = { x: pointer.x, y: pointer.y };
+      if (this.draggingPending) (this.children.getByName('pending-card') as Phaser.GameObjects.Container | null)?.setPosition(pointer.x, pointer.y);
+    });
+    this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+      if (!this.draggingPending) return;
+      this.draggingPending = false;
+      const lane = this.simulation.getLaneForPosition(pointer.y);
+      if (pointer.y < ARENA.bottom && pointer.y > ARENA.top && pointer.x > ARENA.left && pointer.x < ARENA.right && this.simulation.deployPendingFusion('player', lane, pointer.x, pointer.y)) {
+        audioManager.playSfx('deploy');
+        this.pendingLayer?.removeAll(true);
+        this.refreshHandUi();
+      } else {
+        (this.children.getByName('pending-card') as Phaser.GameObjects.Container | null)?.setPosition(960, 833);
+        this.showToast('融合卡无法部署到此处', true);
+      }
+    });
     this.input.keyboard?.on('keydown-ESC', () => this.togglePause());
   }
 
@@ -221,7 +244,17 @@ export class BattleScene extends Phaser.Scene {
           : this.simulation.getFusionCatalyst('player') === 'chaos'
             ? '混沌粉尘：招牌概率提高'
             : '选择两张牌进入随机熔铸');
-    this.renderPendingFusion();
+    if (this.fusionGuideText) {
+      const hand = this.simulation.getHand('player');
+      if (this.fusionMode && this.fusionSelection.length === 0) this.fusionGuideText.setText('① 点击第一张手牌，它会成为融合主体');
+      else if (this.fusionMode && this.fusionSelection.length === 1) this.fusionGuideText.setText(`① 主体：${getCard(hand[this.fusionSelection[0]!]!).name} · ② 点击第二张作为词缀`);
+      else if (this.fusionMode && this.fusionSelection.length === 2) {
+        const body = getCard(hand[this.fusionSelection[0]!]!);
+        const trait = getCard(hand[this.fusionSelection[1]!]!);
+        this.fusionGuideText.setText(`主体 ${body.name} × 词缀 ${trait.name} · 确认后揭晓结果`);
+      } else if (this.simulation.getPendingFusion('player')) this.fusionGuideText.setText('融合已完成：把下方结果卡拖到战场');
+      else this.fusionGuideText.setText('拖动手牌部署；点击熔铸工坊开始融合');
+    }
   }
 
   private createHandCard(x: number, y: number, id: string, name: string, cost: number, artKey: string, index: number): Phaser.GameObjects.Container {
@@ -233,6 +266,11 @@ export class BattleScene extends Phaser.Scene {
     const costCircle = this.add.circle(-57, -57, 17, 0x7848b6, 1).setStrokeStyle(2, 0xffffff, 0.8);
     const costText = this.add.text(-57, -57, String(cost), { fontFamily: 'monospace', fontSize: '20px', color: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5);
     const nameText = this.add.text(0, 35, name, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '16px', color: '#fff4d6', fontStyle: 'bold', align: 'center', wordWrap: { width: 134 } }).setOrigin(0.5);
+    if (this.fusionMode && index >= 0) {
+      const order = this.fusionSelection.indexOf(index);
+      const marker = order === 0 ? '① 主体' : order === 1 ? '② 词缀' : '点击选择';
+      container.add(this.add.text(0, 65, marker, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '14px', color: order >= 0 ? '#f6dfaa' : '#9d91a5', fontStyle: 'bold' }).setOrigin(0.5));
+    }
     container.add([box, art, costCircle, costText, nameText]);
     box.setInteractive({ useHandCursor: true });
     box.setData('handIndex', index);
@@ -440,7 +478,7 @@ export class BattleScene extends Phaser.Scene {
     this.pendingLayer?.removeAll(true);
     const pending = this.simulation.getPendingFusion('player');
     if (!pending) return;
-    const container = this.add.container(960, 833);
+    const container = this.add.container(960, 833).setDepth(20).setName('pending-card');
     const box = this.add.rectangle(0, 0, 420, 46, 0x3f2c16, 0.98).setStrokeStyle(3, COLORS.gold, 1);
     const text = this.add.text(0, 0, `拖到战场释放：${pending.name}`, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '18px', color: '#ffe6a4', fontStyle: 'bold' }).setOrigin(0.5);
     container.add([box, text]);
@@ -868,6 +906,9 @@ function outerRing(scene: Phaser.Scene, x: number, y: number): void {
   const ring = scene.add.circle(x, y, 20, 0xffffff, 0).setStrokeStyle(8, COLORS.gold, 1).setDepth(10);
   scene.tweens.add({ targets: ring, radius: 130, alpha: 0, duration: 600, onComplete: () => ring.destroy() });
 }
+
+
+
 
 
 
