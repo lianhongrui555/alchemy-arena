@@ -74,3 +74,14 @@ describe('练习与统计', () => {
   });
 });
 
+
+describe('国王塔唤醒', () => {
+  it('开局国王塔沉睡，守卫塔被摧毁后激活', () => {
+    const simulation = new BattleSimulation(getStage(1), INITIAL_DECK_IDS);
+    expect(simulation.towers.find((tower) => tower.id === 'player_king')?.activated).toBe(false);
+    expect(simulation.towers.find((tower) => tower.id === 'enemy_top')?.activated).toBe(true);
+    const guard = simulation.towers.find((tower) => tower.id === 'enemy_top')!;
+    (simulation as unknown as { damageTower: (tower: typeof guard, damage: number, attacker: 'player' | 'enemy') => void }).damageTower(guard, 99999, 'player');
+    expect(simulation.towers.find((tower) => tower.id === 'enemy_king')?.activated).toBe(true);
+  });
+});

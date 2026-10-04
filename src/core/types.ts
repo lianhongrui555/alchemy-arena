@@ -200,6 +200,7 @@ export interface TowerState {
   attackInterval: number;
   attackCooldown: number;
   alive: boolean;
+  activated: boolean;
 }
 
 export interface UnitState {
@@ -267,6 +268,7 @@ export interface BattleEvent {
     | 'unit-died'
     | 'tower-damaged'
     | 'tower-destroyed'
+    | 'tower-activated'
     | 'battle-ended'
     | 'modifier';
   side?: Side;
@@ -326,5 +328,7 @@ export interface BattleSceneData {
   blessings?: Partial<Record<BlessingId, 1 | 2>>;
   tutorialStep?: number;
 }
+
+
 
 

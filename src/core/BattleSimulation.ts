@@ -377,7 +377,7 @@ export class BattleSimulation {
 
   private updateTowers(delta: number): void {
     for (const tower of this.towers) {
-      if (!tower.alive) continue;
+      if (!tower.alive || (tower.lane === 'king' && !tower.activated)) continue;
       tower.attackCooldown = Math.max(0, tower.attackCooldown - delta);
       const enemySide: Side = tower.side === 'player' ? 'enemy' : 'player';
       const target = this.units
@@ -599,6 +599,7 @@ export class BattleSimulation {
       if (guardAlive) finalDamage *= 0.4;
     }
     tower.hp -= finalDamage;
+    if (tower.lane === 'king') tower.activated = true;
     this.statistics.damage[attacker] += finalDamage;
     this.emit({ type: 'tower-damaged', side: attacker, x: tower.x, y: tower.y, targetX: tower.x, targetY: tower.y, amount: finalDamage });
     if (tower.hp > 0) return;
@@ -607,8 +608,17 @@ export class BattleSimulation {
     this.crowns[attacker] += tower.lane === 'king' ? 3 : 1;
     this.statistics.towersDestroyed[attacker] += tower.lane === 'king' ? 3 : 1;
     this.emit({ type: 'tower-destroyed', side: attacker, x: tower.x, y: tower.y, text: tower.lane === 'king' ? '国王塔被摧毁' : '守卫塔被摧毁' });
+    if (tower.lane !== 'king') this.activateKingTower(tower.side);
     if (this.activeModifier === 'reinforcement' && tower.lane !== 'king') this.spawnReinforcement(tower.side, tower.lane);
     if (tower.lane === 'king') this.finish({ winner: attacker, reason: 'king-destroyed', playerCrowns: this.crowns.player, enemyCrowns: this.crowns.enemy });
+  }
+
+  private activateKingTower(side: Side): void {
+    const king = this.towers.find((tower) => tower.side === side && tower.lane === 'king');
+    if (!king?.alive || king.activated) return;
+    king.activated = true;
+    king.attackCooldown = 0;
+    this.emit({ type: 'tower-activated', side, x: king.x, y: king.y, text: '国王塔被唤醒' });
   }
 
   private checkEntityDeaths(): void {
@@ -664,17 +674,17 @@ export class BattleSimulation {
 
 function createTowers(): TowerState[] {
   return [
-    createTower('player_king', 'player', 'king', TOWER_POSITIONS.playerKing.x, TOWER_POSITIONS.playerKing.y, 2500, 105, 340, 0.95),
-    createTower('player_top', 'player', 'top', TOWER_POSITIONS.playerTop.x, TOWER_POSITIONS.playerTop.y, 1500, 82, 315, 0.95),
-    createTower('player_bottom', 'player', 'bottom', TOWER_POSITIONS.playerBottom.x, TOWER_POSITIONS.playerBottom.y, 1500, 82, 315, 0.95),
-    createTower('enemy_king', 'enemy', 'king', TOWER_POSITIONS.enemyKing.x, TOWER_POSITIONS.enemyKing.y, 2500, 105, 340, 0.95),
-    createTower('enemy_top', 'enemy', 'top', TOWER_POSITIONS.enemyTop.x, TOWER_POSITIONS.enemyTop.y, 1500, 82, 315, 0.95),
-    createTower('enemy_bottom', 'enemy', 'bottom', TOWER_POSITIONS.enemyBottom.x, TOWER_POSITIONS.enemyBottom.y, 1500, 82, 315, 0.95),
+    createTower('player_king', 'player', 'king', TOWER_POSITIONS.playerKing.x, TOWER_POSITIONS.playerKing.y, 2500, 105, 340, 0.95, false),
+    createTower('player_top', 'player', 'top', TOWER_POSITIONS.playerTop.x, TOWER_POSITIONS.playerTop.y, 1500, 82, 315, 0.95, true),
+    createTower('player_bottom', 'player', 'bottom', TOWER_POSITIONS.playerBottom.x, TOWER_POSITIONS.playerBottom.y, 1500, 82, 315, 0.95, true),
+    createTower('enemy_king', 'enemy', 'king', TOWER_POSITIONS.enemyKing.x, TOWER_POSITIONS.enemyKing.y, 2500, 105, 340, 0.95, false),
+    createTower('enemy_top', 'enemy', 'top', TOWER_POSITIONS.enemyTop.x, TOWER_POSITIONS.enemyTop.y, 1500, 82, 315, 0.95, true),
+    createTower('enemy_bottom', 'enemy', 'bottom', TOWER_POSITIONS.enemyBottom.x, TOWER_POSITIONS.enemyBottom.y, 1500, 82, 315, 0.95, true),
   ];
 }
 
-function createTower(id: string, side: Side, lane: TowerState['lane'], x: number, y: number, maxHp: number, damage: number, range: number, attackInterval: number): TowerState {
-  return { id, side, lane, x, y, maxHp, hp: maxHp, damage, range, attackInterval, attackCooldown: 0, alive: true };
+function createTower(id: string, side: Side, lane: TowerState['lane'], x: number, y: number, maxHp: number, damage: number, range: number, attackInterval: number, activated: boolean): TowerState {
+  return { id, side, lane, x, y, maxHp, hp: maxHp, damage, range, attackInterval, attackCooldown: 0, alive: true, activated };
 }
 
 function towerTarget(tower: TowerState): TargetRef { return { kind: 'tower', id: tower.id, x: tower.x, y: tower.y, radius: 42, movement: 'ground' }; }
@@ -704,6 +714,7 @@ function createStatistics(): BattleStatistics {
     byCard: {},
   };
 }
+
 
 
 

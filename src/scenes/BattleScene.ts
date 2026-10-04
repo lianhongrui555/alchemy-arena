@@ -517,8 +517,9 @@ export class BattleScene extends Phaser.Scene {
       if (tower.side === 'enemy') image.setTint(0xe88f94);
       const barBack = this.add.rectangle(0, 53, 90, 12, 0x201827, 1).setStrokeStyle(2, 0x000000, 0.7);
       const bar = this.add.rectangle(-43, 53, 86, 8, tower.side === 'player' ? COLORS.player : COLORS.enemy, 1).setOrigin(0, 0.5).setName('hp-bar');
-      const label = this.add.text(0, -63, tower.lane === 'king' ? '国王塔' : '守卫塔', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '15px', color: '#f1e7dc' }).setOrigin(0.5);
-      container.add([image, barBack, bar, label]);
+      const activation = this.add.circle(0, 0, tower.lane === 'king' ? 64 : 0, 0xffffff, 0).setStrokeStyle(4, COLORS.gold, 0.9).setVisible(tower.lane === 'king' && tower.activated);
+      const label = this.add.text(0, -63, tower.lane === 'king' ? '国王塔' : '守卫塔', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '15px', color: '#f1e7dc' }).setOrigin(0.5).setName('tower-label');
+      container.add([image, barBack, bar, activation, label]);
       this.towerViews.set(tower.id, container);
     }
   }
@@ -530,6 +531,10 @@ export class BattleScene extends Phaser.Scene {
       container.setAlpha(tower.alive ? 1 : 0.22);
       const bar = container.getByName('hp-bar') as Phaser.GameObjects.Rectangle | null;
       bar?.setDisplaySize(86 * Math.max(0, tower.hp / tower.maxHp), 8);
+      const label = container.getByName('tower-label') as Phaser.GameObjects.Text | null;
+      if (tower.lane === 'king') label?.setText(tower.activated ? '国王塔 · 已激活' : '国王塔 · 沉睡');
+      const activation = container.list.find((item) => item instanceof Phaser.GameObjects.Arc) as Phaser.GameObjects.Arc | undefined;
+      if (activation) activation.setVisible(tower.lane === 'king' && tower.activated);
     }
   }
 
@@ -610,6 +615,9 @@ export class BattleScene extends Phaser.Scene {
       audioManager.playSfx('tower');
     } else if (event.type === 'unit-died' && event.x !== undefined && event.y !== undefined) {
       this.createBurst(event.x, event.y, event.side === 'player' ? COLORS.player : COLORS.enemy);
+    } else if (event.type === 'tower-activated' && event.x !== undefined && event.y !== undefined) {
+      outerRing(this, event.x, event.y);
+      audioManager.playSfx('victory');
     } else if (event.type === 'tower-destroyed' && event.x !== undefined && event.y !== undefined) {
       outerRing(this, event.x, event.y);
       audioManager.playSfx('tower');
