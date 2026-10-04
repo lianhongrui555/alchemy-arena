@@ -72,7 +72,7 @@ export function createCardView(
   const art = scene.add.image(0, -height * 0.12, card.artKey).setDisplaySize(Math.min(width * 0.64, 110), Math.min(width * 0.64, 110));
   const cost = scene.add.circle(-width / 2 + 22, -height / 2 + 22, 19, 0x7848b6, 1).setStrokeStyle(3, 0xffffff, 0.8);
   const costText = scene.add.text(-width / 2 + 22, -height / 2 + 22, String(card.cost), { fontFamily: 'monospace', fontSize: '24px', color: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5);
-  const typeName = cardTypeName(card.type);
+  const typeName = cardRoleLabel(card);
   const name = scene.add.text(0, height * 0.31, card.name, {
     fontFamily: '"Microsoft YaHei", sans-serif', fontSize: `${Math.max(17, width * 0.12)}px`, color: '#fff4d6', fontStyle: 'bold', align: 'center', wordWrap: { width: width - 14 },
   }).setOrigin(0.5);
@@ -90,12 +90,26 @@ export function createCardView(
   return container;
 }
 
+export function cardRoleLabel(card: CardDefinition | FusionResult): string {
+  if (card.role) return card.role;
+  if (card.type === 'catalyst') return '熔铸辅助';
+  if (card.type === 'building') return card.tags.includes('heal') ? '治疗建筑' : '防守建筑';
+  if (card.type === 'spell') return card.tags.includes('damage') ? '伤害法术' : card.tags.includes('heal') ? '治疗法术' : '控制法术';
+  if (card.type === 'trap') return card.tags.includes('dot') ? '持续陷阱' : '爆发陷阱';
+  if ('stats' in card && card.stats?.targetPreference === 'buildings') return '建筑杀手坦克';
+  if (card.tags.includes('swarm')) return '群体部队';
+  if (card.tags.includes('ranged')) return '后排输出';
+  if (card.tags.includes('charger')) return '冲锋输出';
+  if (card.tags.includes('air')) return '空中突袭';
+  return '前排单位';
+}
+
 export function cardTypeName(type: string): string {
   return ({ unit: '单位', building: '建筑', spell: '法术', trap: '陷阱', catalyst: '催化剂' } as Record<string, string>)[type] ?? type;
 }
 
 export function cardColor(card: CardDefinition | FusionResult): number {
-  if ('signature' in card && card.signature) return COLORS.gold;
+  if ('rarity' in card && card.rarity === 'signature') return COLORS.gold;
   return ({ unit: COLORS.player, building: 0xb8864e, spell: COLORS.purple, trap: COLORS.green, catalyst: COLORS.gold } as Record<string, number>)[card.type] ?? COLORS.gold;
 }
 
@@ -105,3 +119,5 @@ export function createTopBar(scene: Phaser.Scene, title: string, subtitle?: stri
   if (subtitle) scene.add.text(1870, 58, subtitle, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '21px', color: '#b9a7c6' }).setOrigin(1, 0.5);
   scene.add.rectangle(960, 118, 1920, 3, COLORS.gold, 0.8);
 }
+
+

@@ -86,7 +86,7 @@ export class AIController {
     const trap = !spell && simulation.stage.usesTraps ? candidates.find(({ card }) => card.type === 'trap') : undefined;
     const building = !spell && !trap && threats.length > 0 ? candidates.find(({ card }) => card.type === 'building') : undefined;
     const unit = [...candidates]
-      .filter(({ card }) => card.type === 'unit')
+      .filter(({ card }) => card.type === 'unit' && (!threats.length || card.stats?.targetPreference !== 'buildings'))
       .sort((a, b) => b.card.power - a.card.power)[0];
     const selected = spell ?? trap ?? building ?? unit ?? candidates[0];
     if (!selected) return;
@@ -125,4 +125,5 @@ function getCluster(units: BattleSimulation['units']): { x: number; y: number; c
     count: units.length,
   };
 }
+
 

@@ -32,7 +32,7 @@ describe('BattleSimulation', () => {
     const simulation = new BattleSimulation(getStage(2), INITIAL_DECK_IDS, undefined, { startingElixir: 10 });
     expect(simulation.playHandCard('enemy', 0, 'top', 1300, 310)).toBe(true);
     const enemy = simulation.units.find((unit) => unit.owner === 'enemy');
-    expect(enemy?.maxHp).toBe(1155);
+    expect(enemy?.maxHp).toBe(1890);
   });
 
   it('十四张基础牌都可以被正常使用', () => {
@@ -83,5 +83,26 @@ describe('国王塔唤醒', () => {
     const guard = simulation.towers.find((tower) => tower.id === 'enemy_top')!;
     (simulation as unknown as { damageTower: (tower: typeof guard, damage: number, attacker: 'player' | 'enemy') => void }).damageTower(guard, 99999, 'player');
     expect(simulation.towers.find((tower) => tower.id === 'enemy_king')?.activated).toBe(true);
+  });
+});
+
+describe('卡牌定位', () => {
+  it('铁砧守卫只锁定防御建筑，不攻击普通部队', () => {
+    const simulation = new BattleSimulation(getStage(1), INITIAL_DECK_IDS, undefined, { startingElixir: 10 });
+    expect(simulation.playHandCard('player', 0, 'top', 600, 310)).toBe(true);
+    const giant = simulation.units.find((unit) => unit.owner === 'player')!;
+    expect(giant.targetPreference).toBe('buildings');
+    const target = (simulation as unknown as { findTarget: (unit: typeof giant) => { kind: string } }).findTarget(giant);
+    expect(target.kind).toBe('tower');
+  });
+
+  it('防御塔使用降低后的生命和攻击数值', () => {
+    const simulation = new BattleSimulation(getStage(1), INITIAL_DECK_IDS);
+    const guard = simulation.towers.find((tower) => tower.id === 'player_top')!;
+    const king = simulation.towers.find((tower) => tower.id === 'player_king')!;
+    expect(guard.maxHp).toBe(1500);
+    expect(guard.damage).toBe(82);
+    expect(king.maxHp).toBe(2500);
+    expect(king.damage).toBe(105);
   });
 });

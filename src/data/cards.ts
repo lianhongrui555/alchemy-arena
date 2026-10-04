@@ -2,10 +2,10 @@ import type { CardDefinition } from '../core/types';
 
 export const CARDS: Record<string, CardDefinition> = {
   anvil_guard: {
-    id: 'anvil_guard', name: '铁砧守卫', fusionNoun: '守卫', fusionTrait: 'armor', type: 'unit', tags: ['ground', 'tank', 'melee'],
-    cost: 4, power: 4.5, targeting: 'ground', artKey: 'unit_anvil', effectId: 'unit_default',
-    description: '高生命的前排单位，缓慢推进并吸引敌方火力。',
-    stats: { maxHp: 1100, damage: 125, range: 48, attackInterval: 1.15, speed: 42, radius: 25, movement: 'ground', targets: 'ground' },
+    id: 'anvil_guard', name: '铁砧守卫', role: '建筑杀手坦克', fusionNoun: '守卫', fusionTrait: 'armor', type: 'unit', tags: ['ground', 'tank', 'melee', 'building-only', 'win-condition'],
+    cost: 4, power: 4.8, targeting: 'ground', artKey: 'unit_anvil', effectId: 'unit_default',
+    description: '高生命的攻城坦克，只攻击防御塔和建筑，不理会敌方部队。',
+    stats: { maxHp: 1800, damage: 180, range: 52, attackInterval: 1.35, speed: 36, radius: 29, movement: 'ground', targets: 'ground', targetPreference: 'buildings' },
   },
   spark_archer: {
     id: 'spark_archer', name: '星火弓手', fusionNoun: '弓手', fusionTrait: 'spark', type: 'unit', tags: ['ground', 'ranged', 'multi'],
@@ -101,4 +101,5 @@ export function getCard(id: string): CardDefinition {
 export function getDeckCards(ids: string[]): CardDefinition[] {
   return ids.map(getCard);
 }
+
 

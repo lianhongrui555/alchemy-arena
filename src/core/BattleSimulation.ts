@@ -466,6 +466,12 @@ export class BattleSimulation {
 
   private findTarget(unit: UnitState): TargetRef | null {
     const enemySide: Side = unit.owner === 'player' ? 'enemy' : 'player';
+    if (unit.targetPreference === 'buildings') {
+      const guard = this.towers.find((tower) => tower.side === enemySide && tower.lane === unit.lane && tower.alive);
+      if (guard) return towerTarget(guard);
+      const king = this.towers.find((tower) => tower.side === enemySide && tower.lane === 'king' && tower.alive);
+      return king ? towerTarget(king) : null;
+    }
     const enemyUnits = this.units
       .filter((candidate) => candidate.alive && candidate.owner === enemySide && canTarget(unit.targets, candidate.movement))
       .map((candidate) => ({ candidate, dist: distance(unit.x, unit.y, candidate.x, candidate.y) }))
@@ -521,7 +527,7 @@ export class BattleSimulation {
       id: this.nextEntityId++, owner: side, cardId, name, lane, x, y,
       maxHp: Math.round(stats.maxHp * multiplier), hp: Math.round(stats.maxHp * multiplier), damage: stats.damage * multiplier, damageReduction: stats.damageReduction ?? 0,
       range: stats.range, attackInterval: stats.attackInterval, attackCooldown: Math.random() * stats.attackInterval * 0.35,
-      speed: stats.speed, radius: stats.radius, movement: stats.movement, targets: stats.targets,
+      speed: stats.speed, radius: stats.radius, movement: stats.movement, targets: stats.targets, targetPreference: stats.targetPreference ?? 'any',
       attackEffects: (stats.attackEffects ?? []).map((effect) => ({ ...effect, value: effect.kind === 'damage' ? effect.value * multiplier : effect.value })),
       deathEffects: (stats.deathEffects ?? []).map((effect) => ({ ...effect })), splashRadius: stats.splashRadius ?? 0,
       chargeDistance: stats.chargeDistance ?? 0, chargeMultiplier: stats.chargeMultiplier ?? 1, chargeProgress: 0,
@@ -714,6 +720,8 @@ function createStatistics(): BattleStatistics {
     byCard: {},
   };
 }
+
+
 
 
 

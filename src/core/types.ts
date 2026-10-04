@@ -41,6 +41,7 @@ export interface UnitStats {
   damageReduction?: number;
   movement: MovementMode;
   targets: TargetMask;
+  targetPreference?: 'any' | 'buildings';
   attackEffects?: EffectSpec[];
   deployEffects?: EffectSpec[];
   deathEffects?: EffectSpec[];
@@ -72,6 +73,7 @@ export interface CatalystSpec {
 export interface CardDefinition {
   id: string;
   name: string;
+  role?: string;
   fusionNoun?: string;
   fusionTrait?: FusionTrait;
   type: CardType;
@@ -91,6 +93,7 @@ export interface CardDefinition {
 export interface FusionResult {
   id: string;
   name: string;
+  role?: string;
   type: BattleCardType;
   tags: string[];
   cost: number;
@@ -222,6 +225,7 @@ export interface UnitState {
   damageReduction?: number;
   movement: MovementMode;
   targets: TargetMask;
+  targetPreference: 'any' | 'buildings';
   attackEffects: EffectSpec[];
   deathEffects: EffectSpec[];
   splashRadius: number;
@@ -328,6 +332,7 @@ export interface BattleSceneData {
   blessings?: Partial<Record<BlessingId, 1 | 2>>;
   tutorialStep?: number;
 }
+
 
 
 
