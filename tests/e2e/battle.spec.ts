@@ -39,10 +39,8 @@ test('拖动卡牌可以完成部署', async ({ page }) => {
   expect(playerUnits).toBeGreaterThan(0);
 });
 
-test('可以熔铸并拖动结果卡部署', async ({ page }) => {
+test('拖两张牌到左侧熔炉即可完成融合并部署', async ({ page }) => {
   await enterBattle(page);
-  await page.mouse.click(220, 889);
-  await page.waitForTimeout(250);
   await page.mouse.move(950, 973);
   await page.mouse.down();
   await page.mouse.move(210, 780, { steps: 8 });
@@ -54,6 +52,7 @@ test('可以熔铸并拖动结果卡部署', async ({ page }) => {
   await page.mouse.up();
   await page.waitForTimeout(180);
   expect(await page.evaluate(() => (window as any).__ALCHEMY_BATTLE__.fusionSelection())).toEqual([2, 3]);
+  expect(await page.evaluate(() => (window as any).__ALCHEMY_BATTLE__.fusionMode())).toBe(true);
   await page.mouse.click(1180, 760);
   await page.waitForTimeout(1000);
   await page.mouse.click(960, 755);
@@ -78,6 +77,41 @@ test('新存档首次进入会开启教程', async ({ page }) => {
   await page.mouse.up();
   await page.waitForTimeout(400);
   expect(await page.evaluate(() => (window as any).__ALCHEMY_BATTLE__.snapshot().units.some((unit: { owner: string }) => unit.owner === 'player'))).toBe(true);
+  expect(await page.evaluate(() => (window as any).__ALCHEMY_BATTLE__.tutorialStep())).toBe(1);
+
+  await page.waitForTimeout(3200);
+  await page.mouse.move(780, 973);
+  await page.mouse.down();
+  await page.mouse.move(700, 680, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+  expect(await page.evaluate(() => (window as any).__ALCHEMY_BATTLE__.tutorialStep())).toBe(2);
+
+  await page.mouse.click(960, 300);
+  await page.waitForTimeout(250);
+  expect(await page.evaluate(() => (window as any).__ALCHEMY_BATTLE__.tutorialStep())).toBe(3);
+
+  await page.waitForTimeout(9000);
+  await page.mouse.move(950, 973);
+  await page.mouse.down();
+  await page.mouse.move(210, 780, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(180);
+  await page.mouse.move(1120, 973);
+  await page.mouse.down();
+  await page.mouse.move(210, 780, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(180);
+  await page.mouse.click(1180, 760);
+  await page.waitForTimeout(1000);
+  await page.mouse.click(960, 755);
+  await page.waitForTimeout(180);
+  await page.mouse.move(960, 833);
+  await page.mouse.down();
+  await page.mouse.move(700, 310, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(350);
+  expect(await page.evaluate(() => (window as any).__ALCHEMY_BATTLE__.tutorialStep())).toBe(4);
 });
 
 async function seedJourneySave(page: import('@playwright/test').Page, nodeId: string): Promise<void> {

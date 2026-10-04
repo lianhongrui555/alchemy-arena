@@ -51,7 +51,6 @@ export class BattleScene extends Phaser.Scene {
   private attackAudioCooldown = 0;
   private lastPointer = { x: 0, y: 0 };
   private cardClickCount = 0;
-  private draggingPending = false;
 
   constructor() { super('Battle'); }
 
@@ -101,6 +100,8 @@ export class BattleScene extends Phaser.Scene {
         statistics: () => this.simulation.getStatistics(),
         hand: () => this.simulation.getHand('player'),
         selectedHandIndex: () => this.selectedHandIndex,
+        tutorialStep: () => this.tutorialStep,
+        fusionMode: () => this.fusionMode,
         fusionSelection: () => [...this.fusionSelection],
         pendingFusion: () => this.simulation.getPendingFusion('player'),
         lastPointer: () => ({ ...this.lastPointer }),
@@ -182,18 +183,19 @@ export class BattleScene extends Phaser.Scene {
   private createHandUi(): void {
     this.add.rectangle(960, 968, 1900, 215, 0x17131f, 0.98).setStrokeStyle(4, COLORS.parchmentDark, 0.9).setDepth(8);
     createButton(this, 220, 889, 220, 58, '熔铸工坊', () => this.toggleFusionMode(), { fill: COLORS.purple, hoverFill: 0xa576dc, textColor: '#ffffff', fontSize: 22 });
-    this.fusionButtonText = this.add.text(220, 842, '选择两张牌进入随机熔铸', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '16px', color: '#cab6dc' }).setOrigin(0.5);
+    this.fusionButtonText = this.add.text(220, 842, '直接把两张手牌拖进左侧熔炉', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '16px', color: '#cab6dc' }).setOrigin(0.5);
     this.fusionGuideText = this.add.text(950, 800, '拖动手牌部署；点击手牌查看详情', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '18px', color: '#d8c9e5', backgroundColor: '#17131fdd', padding: { x: 12, y: 6 } }).setOrigin(0.5).setDepth(15);
     this.cancelFusionButton = createButton(this, 740, 760, 230, 64, '退出融合', () => this.toggleFusionMode(false), { fontSize: 20 }).setVisible(false);
     this.confirmFusionButton = createButton(this, 1180, 760, 280, 64, '确认熔铸', () => this.confirmFusion(), { fill: COLORS.gold, hoverFill: 0xffd775, fontSize: 20 }).setVisible(false);
-    this.forgeZone = this.add.container(210, 780).setDepth(19).setVisible(false);
+    this.forgeZone = this.add.container(210, 780).setDepth(19).setVisible(true);
     this.forgeZone.add(this.add.rectangle(0, 0, 360, 125, 0x22172d, 0.97).setStrokeStyle(4, COLORS.purple, 1));
-    this.forgeZone.add(this.add.text(0, -47, '熔炉融合区', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '20px', color: '#d9b8f0', fontStyle: 'bold' }).setOrigin(0.5));
+    this.forgeZone.add(this.add.text(0, -47, '融合熔炉：先拖第一张，再拖第二张', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '20px', color: '#d9b8f0', fontStyle: 'bold' }).setOrigin(0.5));
     this.forgeZone.add(this.add.rectangle(-85, 8, 135, 58, 0x160f1d, 0.95).setStrokeStyle(2, COLORS.gold, 0.8));
     this.forgeZone.add(this.add.rectangle(85, 8, 135, 58, 0x160f1d, 0.95).setStrokeStyle(2, COLORS.gold, 0.8));
-    this.forgeZone.add(this.add.text(-85, 8, '① 主体', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '16px', color: '#a99db1' }).setOrigin(0.5).setName('forge-body'));
-    this.forgeZone.add(this.add.text(85, 8, '② 词缀', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '16px', color: '#a99db1' }).setOrigin(0.5).setName('forge-trait'));
+    this.forgeZone.add(this.add.text(-85, 8, '① 主体（第一张）', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '16px', color: '#a99db1' }).setOrigin(0.5).setName('forge-body'));
+    this.forgeZone.add(this.add.text(85, 8, '② 词缀（第二张）', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '16px', color: '#a99db1' }).setOrigin(0.5).setName('forge-trait'));
     this.pendingLayer = this.add.container(0, 0).setDepth(20);
+    this.renderForgeSlots();
     this.refreshHandUi();
   }
 
@@ -201,26 +203,11 @@ export class BattleScene extends Phaser.Scene {
     this.input.mouse?.disableContextMenu();
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       this.lastPointer = { x: pointer.x, y: pointer.y };
-      if (this.simulation.getPendingFusion('player') && pointer.y >= 805 && pointer.y <= 860 && pointer.x >= 735 && pointer.x <= 1185) this.draggingPending = true;
     });
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
       this.lastPointer = { x: pointer.x, y: pointer.y };
-      if (this.draggingPending) (this.children.getByName('pending-card') as Phaser.GameObjects.Container | null)?.setPosition(pointer.x, pointer.y);
     });
-    this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
-      if (!this.draggingPending) return;
-      this.draggingPending = false;
-      const lane = this.simulation.getLaneForPosition(pointer.y);
-      if (pointer.y < ARENA.bottom && pointer.y > ARENA.top && pointer.x > ARENA.left && pointer.x < ARENA.right && this.simulation.deployPendingFusion('player', lane, pointer.x, pointer.y)) {
-        audioManager.playSfx('deploy');
-        this.pendingLayer?.removeAll(true);
-        this.refreshHandUi();
-      } else {
-        (this.children.getByName('pending-card') as Phaser.GameObjects.Container | null)?.setPosition(960, 833);
-        this.showToast('融合卡无法部署到此处', true);
-      }
-    });
-    this.input.keyboard?.on('keydown-ESC', () => { if (this.fusionMode) this.toggleFusionMode(false); else if (this.draggingPending) { this.draggingPending = false; (this.children.getByName('pending-card') as Phaser.GameObjects.Container | null)?.setPosition(960, 833); } else this.togglePause(); });
+    this.input.keyboard?.on('keydown-ESC', () => { if (this.fusionMode) this.toggleFusionMode(false); else this.togglePause(); });
   }
 
   private refreshHandUi(): void {
@@ -252,18 +239,19 @@ export class BattleScene extends Phaser.Scene {
           ? '秩序结晶：稀有度更稳定'
           : this.simulation.getFusionCatalyst('player') === 'chaos'
             ? '混沌粉尘：招牌概率提高'
-            : '选择两张牌进入随机熔铸');
+            : '直接把两张手牌拖进左侧熔炉');
     if (this.fusionGuideText) {
       const hand = this.simulation.getHand('player');
-      if (this.fusionMode && this.fusionSelection.length === 0) this.fusionGuideText.setText('① 点击第一张手牌，它会成为融合主体');
-      else if (this.fusionMode && this.fusionSelection.length === 1) this.fusionGuideText.setText(`① 主体：${getCard(hand[this.fusionSelection[0]!]!).name} · ② 点击第二张作为词缀`);
+      if (this.fusionMode && this.fusionSelection.length === 0) this.fusionGuideText.setText('把第一张手牌拖到左侧①主体槽');
+      else if (this.fusionMode && this.fusionSelection.length === 1) this.fusionGuideText.setText(`① 主体：${getCard(hand[this.fusionSelection[0]!]!).name} · 把第二张拖到左侧②词缀槽`);
       else if (this.fusionMode && this.fusionSelection.length === 2) {
         const body = getCard(hand[this.fusionSelection[0]!]!);
         const trait = getCard(hand[this.fusionSelection[1]!]!);
-        this.fusionGuideText.setText(`主体 ${body.name} × 词缀 ${trait.name} · 确认后揭晓结果`);
-      } else if (this.simulation.getPendingFusion('player')) this.fusionGuideText.setText('融合已完成：把下方结果卡拖到战场');
-      else this.fusionGuideText.setText('拖动手牌部署；点击熔铸工坊开始融合');
+        this.fusionGuideText.setText(`主体 ${body.name} × 词缀 ${trait.name} · 点击右侧“确认熔铸”`);
+      } else if (this.simulation.getPendingFusion('player')) this.fusionGuideText.setText('融合已完成：把下方金色结果卡拖到战场');
+      else this.fusionGuideText.setText('拖动手牌部署；融合时直接把两张牌拖到左侧熔炉');
     }
+    this.renderPendingFusion();
   }
 
   private createHandCard(x: number, y: number, id: string, name: string, cost: number, artKey: string, index: number): Phaser.GameObjects.Container {
@@ -277,7 +265,7 @@ export class BattleScene extends Phaser.Scene {
     const nameText = this.add.text(0, 35, name, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '16px', color: '#fff4d6', fontStyle: 'bold', align: 'center', wordWrap: { width: 134 } }).setOrigin(0.5);
     if (this.fusionMode && index >= 0) {
       const order = this.fusionSelection.indexOf(index);
-      const marker = order === 0 ? '① 主体' : order === 1 ? '② 词缀' : '点击选择';
+      const marker = order === 0 ? '① 主体（第一张）' : order === 1 ? '② 词缀（第二张）' : '点击选择';
       container.add(this.add.text(0, 65, marker, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '14px', color: order >= 0 ? '#f6dfaa' : '#9d91a5', fontStyle: 'bold' }).setOrigin(0.5));
     }
     container.add([box, art, costCircle, costText, nameText]);
@@ -300,31 +288,35 @@ export class BattleScene extends Phaser.Scene {
       const card = getCard(id);
       const droppedOnCauldron = pointer.x >= 105 && pointer.x <= 335 && pointer.y >= 845 && pointer.y <= 940;
       const droppedOnForge = pointer.x >= 30 && pointer.x <= 390 && pointer.y >= 717 && pointer.y <= 843;
-      if (this.fusionMode) {
-        if (droppedOnForge) this.addFusionMaterial(index, card.type === 'catalyst');
-        else this.showToast('请把卡牌拖进左侧熔炉区域', true);
-        container.setPosition(x, y);
-        container.setDepth(8);
+      container.setPosition(x, y);
+      container.setDepth(8);
+
+      // 融合不再需要先点按钮：把牌直接拖进左侧熔炉就能放入素材槽。
+      if (droppedOnForge) {
+        this.addFusionMaterial(index, card.type === 'catalyst');
         return;
       }
-      if (!this.fusionMode && card.type === 'catalyst' && droppedOnCauldron && this.simulation.useCatalyst('player', index)) {
+      if (this.fusionMode) {
+        this.showToast('把牌拖到左侧熔炉，或点“退出融合”', true);
+        return;
+      }
+      if (card.type === 'catalyst' && droppedOnCauldron && this.simulation.useCatalyst('player', index)) {
         audioManager.playSfx('fusion');
         this.refreshHandUi();
         return;
       }
-      if (!this.fusionMode && pointer.y < ARENA.bottom && pointer.y > ARENA.top && pointer.x > ARENA.left && pointer.x < ARENA.right) {
+      if (pointer.y < ARENA.bottom && pointer.y > ARENA.top && pointer.x > ARENA.left && pointer.x < ARENA.right) {
         const lane = this.simulation.getLaneForPosition(pointer.y);
         if (this.simulation.playHandCard('player', index, lane, pointer.x, pointer.y)) {
           audioManager.playSfx('deploy');
           this.selectedHandIndex = -1;
           this.refreshHandUi();
+          this.advanceTutorial(card.id);
           return;
         }
         const preview = this.simulation.getDeploymentPreview('player', card, lane, pointer.x, pointer.y);
         this.showToast(preview.reason === 'not-enough-elixir' ? '圣水不足' : '此处无法部署', true);
       }
-      container.setPosition(x, y);
-      container.setDepth(8);
     });
     return container;
   }
@@ -365,31 +357,33 @@ export class BattleScene extends Phaser.Scene {
 
   private toggleFusionMode(force?: boolean): void {
     if (this.simulation.getPendingFusion('player')) {
-      this.showToast('请先部署已有的融合卡', true);
+      this.showToast('请先把已有的融合卡拖到战场', true);
       return;
     }
-    this.fusionMode = force ?? !this.fusionMode;
-    this.fusionSelection = [];
+    const nextMode = force ?? !this.fusionMode;
+    this.fusionMode = nextMode;
+    if (!nextMode) this.fusionSelection = [];
     this.selectedHandIndex = -1;
     this.refreshFusionControls();
     this.refreshHandUi();
+    if (nextMode && this.fusionSelection.length === 0) this.showToast('把第一张拖到左侧①，第二张拖到②');
   }
 
   private refreshFusionControls(): void {
-    this.forgeZone?.setVisible(this.fusionMode);
+    this.forgeZone?.setVisible(true);
     this.cancelFusionButton?.setVisible(this.fusionMode);
     this.confirmFusionButton?.setVisible(this.fusionMode);
-    if (this.fusionSelection.length === 2) {
-      const ids = this.fusionSelection.map((index) => this.simulation.getHand('player')[index]).filter(Boolean) as string[];
-      if (ids.length === 2) {
-        const cost = getFusionCost(getCard(ids[0]!), getCard(ids[1]!), this.sceneData?.blessings?.['fusion-discount'] ?? 0);
-        const label = this.confirmFusionButton?.list.find((item) => item instanceof Phaser.GameObjects.Text) as Phaser.GameObjects.Text | undefined;
-        label?.setText(`确认熔铸 ${cost} 费`);
-      }
+    const label = this.confirmFusionButton?.list.find((item) => item instanceof Phaser.GameObjects.Text) as Phaser.GameObjects.Text | undefined;
+    if (this.fusionSelection.length === 0) {
+      label?.setText('确认熔铸（先拖两张）');
+    } else if (this.fusionSelection.length === 1) {
+      label?.setText('还差 1 张素材');
     } else {
-      const label = this.confirmFusionButton?.list.find((item) => item instanceof Phaser.GameObjects.Text) as Phaser.GameObjects.Text | undefined;
-      label?.setText('确认熔铸');
+      const ids = this.fusionSelection.map((index) => this.simulation.getHand('player')[index]).filter(Boolean) as string[];
+      const cost = ids.length === 2 ? getFusionCost(getCard(ids[0]!), getCard(ids[1]!), this.sceneData?.blessings?.['fusion-discount'] ?? 0) : 0;
+      label?.setText(`确认熔铸 ${cost} 费`);
     }
+    this.renderForgeSlots();
   }
 
   private confirmFusion(): void {
@@ -475,10 +469,13 @@ export class BattleScene extends Phaser.Scene {
     const description = this.add.text(0, 139, result.description, {
       fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '21px', color: '#c9b8d6', align: 'center', wordWrap: { width: 600 },
     }).setOrigin(0.5);
-    panel.add([outerGlow, ring, art, title, name, meta, description]);
+    const deployHint = this.add.text(0, 205, '结果会放到战场底部，之后直接把金色卡拖到合法区域使用', {
+      fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '17px', color: '#9f91aa', align: 'center', wordWrap: { width: 600 },
+    }).setOrigin(0.5);
+    panel.add([outerGlow, ring, art, title, name, meta, description, deployHint]);
     overlay.add([blocker, panel]);
 
-    const button = createButton(this, 960, 755, 300, 72, '进入待部署槽', () => overlay.destroy(true), {
+    const button = createButton(this, 960, 755, 300, 72, '放入待部署槽', () => overlay.destroy(true), {
       fill: result.rarity === 'signature' ? COLORS.gold : COLORS.parchmentDark,
       hoverFill: result.rarity === 'signature' ? 0xffd775 : 0xdcc68f,
       fontSize: 24,
@@ -511,6 +508,7 @@ export class BattleScene extends Phaser.Scene {
           audioManager.playSfx('deploy');
           this.pendingLayer?.removeAll(true);
           this.refreshHandUi();
+          this.advanceTutorial('fusion');
           return;
         }
         this.showToast('融合卡无法部署到此处', true);
@@ -519,6 +517,7 @@ export class BattleScene extends Phaser.Scene {
       container.setDepth(8);
     });
     this.pendingLayer?.add(container);
+    this.tweens.add({ targets: container, scaleX: 1.04, scaleY: 1.04, yoyo: true, repeat: -1, duration: 620, ease: 'Sine.inOut' });
   }
 
   private renderSimulation(): void {
@@ -864,26 +863,46 @@ export class BattleScene extends Phaser.Scene {
   private setupTutorial(): void {
     this.children.getByName('tutorial-guide')?.destroy();
     const titles = ['第一步：拖曳部署','第二步：等待并消耗圣水','第三步：认识塔与胜负','第四步：完成一次熔铸','第五步：出发吧'];
-    const bodies = ['把铁砧守卫拖到左侧高亮区域，松手即可部署。','拖出孢子小队。圣水会随时间自动恢复。','先破守卫塔，再打国王塔。加时结束会比较剩余塔生命。','点击炽焰瓶作主体、霜冻试剂作词缀，确认后把融合卡拖到木桩区域。','你已经掌握基础操作。真实路线每轮三战，失败会清空本轮祝福。'];
+    const bodies = [
+      '把铁砧守卫拖到战场左侧，松手即可部署。',
+      '把孢子小队拖到战场。圣水不足时等紫色圣水条恢复。',
+      '先破守卫塔，再打国王塔。时间结束会比较剩余塔生命。',
+      '把炽焰瓶拖到左侧①主体，把霜冻试剂拖到②词缀，再点“确认熔铸”。结果卡拖到战场即可。',
+      '你已经掌握基础操作。真实路线每轮三战，失败会清空本轮祝福。',
+    ];
     const overlay = this.add.container(0, 0).setName('tutorial-guide').setDepth(75);
     const panel = createPanel(this, 960, 190, 900, 150, 0.98);
     panel.add(this.add.text(-410, -44, titles[this.tutorialStep] ?? titles[4]!, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '24px', color: '#f6dfaa', fontStyle: 'bold' }).setOrigin(0, 0.5));
-    panel.add(this.add.text(-410, 4, bodies[this.tutorialStep] ?? bodies[4]!, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '19px', color: '#d8c9e5', wordWrap: { width: 710 } }).setOrigin(0, 0.5));
-    const skip = createButton(this, 410, -28, 120, 44, '跳过', () => { setTutorialState(loadSave(), true, 0); this.scene.start('Menu'); }, { fontSize: 18 });
-    const replay = createButton(this, 410, 28, 120, 44, '重播本步', () => this.scene.restart({ ...this.sceneData!, tutorialStep: this.tutorialStep }), { fontSize: 17 });
-    panel.add([skip, replay]);
+    panel.add(this.add.text(-410, 4, bodies[this.tutorialStep] ?? bodies[4]!, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '18px', color: '#d8c9e5', wordWrap: { width: 580 } }).setOrigin(0, 0.5));
+    panel.add(this.add.text(280, -44, `第 ${this.tutorialStep + 1}/5 步`, { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '17px', color: '#9f91aa' }).setOrigin(0.5));
+    const skipAll = createButton(this, 410, -28, 120, 44, '跳过教学', () => { setTutorialState(loadSave(), true, 0); this.scene.start('Menu'); }, { fontSize: 17 });
+    const replay = createButton(this, 410, 28, 120, 44, '重播本步', () => this.scene.restart({ ...this.sceneData!, tutorialStep: this.tutorialStep }), { fontSize: 16 });
+    const skipStep = createButton(this, 260, 28, 120, 44, '跳过本步', () => this.goToTutorialStep(this.tutorialStep + 1), { fontSize: 16 });
+    panel.add([skipAll, replay, skipStep]);
     overlay.add(panel);
-    if (this.tutorialStep === 2) createButton(this, 960, 300, 220, 56, '继续', () => { this.tutorialStep = 3; this.setupTutorial(); }, { fill: COLORS.gold, fontSize: 20 }).setDepth(76);
-    if (this.tutorialStep === 4) createButton(this, 960, 300, 220, 56, '完成教学', () => { setTutorialState(loadSave(), true, 0); this.scene.start('Menu'); }, { fill: COLORS.gold, fontSize: 20 }).setDepth(76);
+
+    if (this.tutorialStep === 2) {
+      overlay.add(createButton(this, 960, 300, 240, 56, '继续', () => this.goToTutorialStep(3), { fill: COLORS.gold, fontSize: 20 }));
+    }
+    if (this.tutorialStep === 4) {
+      overlay.add(createButton(this, 960, 300, 240, 56, '完成教学', () => { setTutorialState(loadSave(), true, 0); this.scene.start('Menu'); }, { fill: COLORS.gold, fontSize: 20 }));
+    }
+  }
+
+  private goToTutorialStep(step: number): void {
+    this.tutorialStep = Math.max(0, Math.min(4, step));
+    setTutorialState(loadSave(), false, this.tutorialStep);
+    this.setupTutorial();
   }
 
   private advanceTutorial(action: string): void {
     if (!this.tutorialMode) return;
-    if (this.tutorialStep === 0 && action === 'anvil_guard') this.tutorialStep = 1;
-    else if (this.tutorialStep === 1 && action === 'spore_squad') this.tutorialStep = 2;
-    else if (this.tutorialStep === 3 && action === 'fusion') this.tutorialStep = 4;
-    else return;
-    this.setupTutorial();
+    let nextStep: number | null = null;
+    if (this.tutorialStep === 0 && action === 'anvil_guard') nextStep = 1;
+    else if (this.tutorialStep === 1 && action === 'spore_squad') nextStep = 2;
+    else if (this.tutorialStep === 3 && action === 'fusion') nextStep = 4;
+    if (nextStep === null) return;
+    this.goToTutorialStep(nextStep);
   }
   private showModifierBanner(modifierId: import('../core/types').BattleModifierId): void {
     const modifier = getModifier(modifierId);
@@ -927,12 +946,15 @@ export class BattleScene extends Phaser.Scene {
     this.tweens.add({ targets: this.toastText, alpha: 0, delay: 1100, duration: 500 });
   }
   private addFusionMaterial(index: number, isCatalyst: boolean): void {
+    if (this.simulation.getPendingFusion('player')) { this.showToast('先把已有的融合卡拖到战场', true); return; }
     if (isCatalyst) { this.showToast('催化剂不能作为融合素材', true); return; }
     if (this.fusionSelection.includes(index)) return;
     if (this.fusionSelection.length >= 2) { this.showToast('熔炉已经放满两张素材', true); return; }
+    this.fusionMode = true;
     this.fusionSelection.push(index);
     this.refreshFusionControls();
     this.refreshHandUi();
+    this.showToast(this.fusionSelection.length === 1 ? '第一张已放入①主体，再拖第二张到②词缀' : '两张已放好，点击“确认熔铸”');
   }
 
   private renderForgeSlots(): void {
@@ -942,8 +964,8 @@ export class BattleScene extends Phaser.Scene {
     const trait = hand[this.fusionSelection[1] ?? -1];
     const bodyText = this.forgeZone.getByName('forge-body') as Phaser.GameObjects.Text | null;
     const traitText = this.forgeZone.getByName('forge-trait') as Phaser.GameObjects.Text | null;
-    bodyText?.setText(body ? `① ${getCard(body).name}` : '① 主体');
-    traitText?.setText(trait ? `② ${getCard(trait).name}` : '② 词缀');
+    bodyText?.setText(body ? `① ${getCard(body).name}` : '① 主体（第一张）');
+    traitText?.setText(trait ? `② ${getCard(trait).name}` : '② 词缀（第二张）');
   }
 }
 
