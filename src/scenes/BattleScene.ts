@@ -182,8 +182,8 @@ export class BattleScene extends Phaser.Scene {
     createButton(this, 220, 889, 220, 58, '熔铸工坊', () => this.toggleFusionMode(), { fill: COLORS.purple, hoverFill: 0xa576dc, textColor: '#ffffff', fontSize: 22 });
     this.fusionButtonText = this.add.text(220, 842, '选择两张牌进入随机熔铸', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '16px', color: '#cab6dc' }).setOrigin(0.5);
     this.fusionGuideText = this.add.text(950, 800, '拖动手牌部署；点击手牌查看详情', { fontFamily: '"Microsoft YaHei", sans-serif', fontSize: '18px', color: '#d8c9e5', backgroundColor: '#17131fdd', padding: { x: 12, y: 6 } }).setOrigin(0.5).setDepth(15);
-    this.cancelFusionButton = createButton(this, 1660, 889, 150, 58, '取消选择', () => this.toggleFusionMode(false), { fontSize: 20 }).setVisible(false);
-    this.confirmFusionButton = createButton(this, 1830, 889, 190, 58, '确认熔铸', () => this.confirmFusion(), { fill: COLORS.gold, hoverFill: 0xffd775, fontSize: 20 }).setVisible(false);
+    this.cancelFusionButton = createButton(this, 740, 760, 230, 64, '退出融合', () => this.toggleFusionMode(false), { fontSize: 20 }).setVisible(false);
+    this.confirmFusionButton = createButton(this, 1180, 760, 280, 64, '确认熔铸', () => this.confirmFusion(), { fill: COLORS.gold, hoverFill: 0xffd775, fontSize: 20 }).setVisible(false);
     this.pendingLayer = this.add.container(0, 0).setDepth(20);
     this.refreshHandUi();
   }
@@ -211,7 +211,7 @@ export class BattleScene extends Phaser.Scene {
         this.showToast('融合卡无法部署到此处', true);
       }
     });
-    this.input.keyboard?.on('keydown-ESC', () => this.togglePause());
+    this.input.keyboard?.on('keydown-ESC', () => { if (this.fusionMode) this.toggleFusionMode(false); else if (this.draggingPending) { this.draggingPending = false; (this.children.getByName('pending-card') as Phaser.GameObjects.Container | null)?.setPosition(960, 833); } else this.togglePause(); });
   }
 
   private refreshHandUi(): void {
@@ -914,6 +914,7 @@ function outerRing(scene: Phaser.Scene, x: number, y: number): void {
   const ring = scene.add.circle(x, y, 20, 0xffffff, 0).setStrokeStyle(8, COLORS.gold, 1).setDepth(10);
   scene.tweens.add({ targets: ring, radius: 130, alpha: 0, duration: 600, onComplete: () => ring.destroy() });
 }
+
 
 
 

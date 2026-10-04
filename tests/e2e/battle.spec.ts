@@ -48,7 +48,7 @@ test('可以熔铸并拖动结果卡部署', async ({ page }) => {
   await page.mouse.click(1120, 973);
   await page.waitForTimeout(180);
   expect(await page.evaluate(() => (window as any).__ALCHEMY_BATTLE__.fusionSelection())).toEqual([2, 3]);
-  await page.mouse.click(1830, 889);
+  await page.mouse.click(1180, 760);
   await page.waitForTimeout(1000);
   await page.mouse.click(960, 755);
   await page.waitForTimeout(180);
@@ -73,6 +73,7 @@ test('新存档首次进入会开启教程', async ({ page }) => {
   await page.waitForTimeout(400);
   expect(await page.evaluate(() => (window as any).__ALCHEMY_BATTLE__.snapshot().units.some((unit: { owner: string }) => unit.owner === 'player'))).toBe(true);
 });
+
 
 
 
