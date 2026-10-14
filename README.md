@@ -51,3 +51,23 @@ npm run build
 ## GitHub Pages
 
 线上地址：`https://lianhongrui555.github.io/alchemy-arena/`
+## 桌面快捷启动
+
+双击桌面快捷方式：
+
+```text
+熔炉对决
+```
+
+它会自动：
+
+1. 检查本地开发服务器是否已经启动。
+2. 如果没有启动，就在隐藏窗口运行 `npm run dev`。
+3. 等待 `http://127.0.0.1:5173/alchemy-arena/` 可访问。
+4. 自动打开默认浏览器。
+
+也可以直接运行：
+
+```powershell
+.\start_game.ps1
+```
